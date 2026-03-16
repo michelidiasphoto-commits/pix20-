@@ -148,7 +148,10 @@
     <!-- CONTEÚDO PRINCIPAL (ESCONDIDO ATÉ LOGAR) -->
     <div id="main-content">
         <div class="header">
-            <h1>Painel Admin</h1>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h1 style="margin: 0;">Painel Admin</h1>
+                <button onclick="logout()" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; padding: 4px 12px; border-radius: 8px; font-size: 12px; cursor: pointer;">Sair</button>
+            </div>
             <p>Gerenciamento em Tempo Real</p>
         </div>
 
@@ -231,6 +234,11 @@
                 <p style="font-size: 12px; opacity: 0.5;">Carregando usuários...</p>
             </div>
         </div>
+
+        <!-- BOTÃO DESCONECTAR NO RODAPÉ -->
+        <div style="margin-top: 20px; text-align: center; padding-bottom: 40px;">
+            <button onclick="logout()" style="background: rgba(239, 68, 68, 0.1); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 12px 24px; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; width: 100%;">🚪 DESCONECTAR CONTA</button>
+        </div>
     </div>
 
     <script>
@@ -240,6 +248,16 @@
 
         let AUTH_HEADER = localStorage.getItem('pix_auth');
         let USER_ROLE = localStorage.getItem('pix_role') || '';
+
+        // Função para extrair o usuário do header de autenticação
+        function getLoggedUser() {
+            if (!AUTH_HEADER) return null;
+            try {
+                const base64 = AUTH_HEADER.split(' ')[1];
+                const decoded = atob(base64);
+                return decoded.split(':')[0];
+            } catch(e) { return null; }
+        }
 
         async function doLogin() {
             const u = document.getElementById('user-login').value;
@@ -270,6 +288,13 @@
         }
 
         function showMain() {
+            const loggedUser = getLoggedUser();
+            
+            // Força Cargo Master se for o login do Admin Principal
+            if (loggedUser === 'admin_maisvelho') {
+                USER_ROLE = 'master';
+            }
+
             document.getElementById('login-screen').style.display = 'none';
             document.getElementById('main-content').style.display = 'block';
             
