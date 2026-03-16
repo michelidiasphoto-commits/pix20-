@@ -214,7 +214,13 @@
         </div>
 
         <div id="user-management-section" style="display: none;" class="action-card">
-            <h2>👥 Gestão de Parceiros</h2>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h2 style="margin:0;">👥 Gestão de Parceiros</h2>
+                <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.2); padding: 6px 12px; border-radius: 20px;">
+                    <span style="font-size: 11px; font-weight: 600;">Saque Auto:</span>
+                    <input type="checkbox" id="toggle-auto-saque" onchange="toggleAutoSaque()" style="cursor:pointer; width: 16px; height: 16px; accent-color: #22c55e;">
+                </div>
+            </div>
             <div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 12px; margin-bottom: 20px;">
                 <p style="font-size: 13px; margin-bottom: 12px; font-weight: 600;">➕ Cadastrar Novo Acesso</p>
                 <div class="input-group">
@@ -362,6 +368,12 @@
                 const resp = await fetch('/api/users', { headers: { 'Authorization': AUTH_HEADER } });
                 if (resp.status === 401) return;
                 const data = await resp.json();
+                
+                // Atualiza o estado do toggle de saque automático
+                if (data.auto_saque !== undefined) {
+                    document.getElementById('toggle-auto-saque').checked = data.auto_saque;
+                }
+
                 const container = document.getElementById('user-list-container');
                 
                 if (data.users && data.users.length > 0) {
@@ -381,6 +393,21 @@
                     container.innerHTML = '<p style="font-size: 12px; opacity: 0.5;">Nenhum usuário liberado.</p>';
                 }
             } catch (e) { console.error(e); }
+        }
+
+        async function toggleAutoSaque() {
+            const isChecked = document.getElementById('toggle-auto-saque').checked;
+            try {
+                const resp = await fetch('/api/admin/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': AUTH_HEADER },
+                    body: JSON.stringify({ auto_saque: isChecked })
+                });
+                if (resp.ok) {
+                    const status = isChecked ? "ATIVADO" : "DESATIVADO";
+                    tg.showAlert(`🚀 Saque Automático ${status}!`);
+                }
+            } catch (e) { tg.showAlert("Erro ao alterar configuração."); }
         }
 
         async function createUser() {

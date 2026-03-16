@@ -36,7 +36,8 @@ def load_cfg():
         "telegram_token": get_env("TELEGRAM_TOKEN", "8618759737:AAH8JRKP_7Xm_nPXMiSxelKsPLbJMaRwM-M"),
         "telegram_admin_ids": admin_ids,
         "webhook_url": get_env("WEBHOOK_URL", "https://pix20.onrender.com"),
-        "parceiros": {"admin": "admin_master_key_123"}
+        "parceiros": {"admin": "admin_master_key_123"},
+        "auto_saque": False # Modo padrão: Manual
     }
     return cfg
 
@@ -204,29 +205,67 @@ async def api_saque(data: dict, credentials: HTTPBasicCredentials = Depends(secu
     if valor_pedir > fin["disponivel"]:
         raise HTTPException(400, "Saldo insuficiente para o saque")
         
-    col_saques.insert_one({
+    saque_doc = {
         "login": credentials.username,
         "valor": valor_pedir,
         "pix_key": chave,
         "status": "pendente",
         "criado_em": datetime.now().isoformat()
-    })
+    }
+    
+    # Tenta saque AUTOMÁTICO se estiver ligado
+    if CFG.get("auto_saque"):
+        try:
+            payout_payload = {
+                "amount": valor_pedir,
+                "key": chave
+            }
+            payout_headers = {
+                "x-public-key": CFG["public_key"],
+                "x-secret-key": CFG["secret_key"],
+                "Content-Type": "application/json"
+            }
+            async with httpx.AsyncClient(timeout=30) as cl:
+                payout_resp = await cl.post(f"{CFG['api_base']}/api/v1/gateway/pix/payout", json=payout_payload, headers=payout_headers)
+                payout_data = payout_resp.json()
+                
+            if payout_resp.status_code in (200, 201):
+                saque_doc["status"] = "completo"
+                saque_doc["payout_id"] = payout_data.get("id") or "auto"
+            else:
+                saque_doc["status"] = "erro"
+                saque_doc["erro_api"] = payout_data.get("message", "Erro na API")
+        except Exception as e:
+            saque_doc["status"] = "erro"
+            saque_doc["erro_api"] = str(e)
+
+    col_saques.insert_one(saque_doc)
     
     # Notifica Admin Principal
-    notif = f"💰 *PEDIDO DE SAQUE*\n👤 Usuário: `{credentials.username}`\n💵 Valor: R$ {valor_pedir:.2f}\n🔑 Chave: `{chave}`"
+    status_emoji = "✅ AUTOMÁTICO" if saque_doc["status"] == "completo" else "⏳ PENDENTE (MANUAL)"
+    if saque_doc["status"] == "erro": status_emoji = f"⚠️ ERRO AUTO: {saque_doc.get('erro_api')}"
+    
+    notif = f"💰 *PEDIDO DE SAQUE*\n👤 Usuário: `{credentials.username}`\n💵 Valor: R$ {valor_pedir:.2f}\n🔑 Chave: `{chave}`\n📌 Status: {status_emoji}"
     for admin_id in CFG["telegram_admin_ids"]:
         try: bot.send_message(admin_id, notif, parse_mode="Markdown")
         except: pass
         
-    return {"success": True, "message": "Pedido de saque enviado com sucesso"}
+    return {"success": True, "message": "Pedido de saque enviado com sucesso", "status": saque_doc["status"]}
 
 @app.get("/api/users")
 async def api_users(credentials: HTTPBasicCredentials = Depends(security)):
-    # Somente o Master vê a lista de gestão
+    # Somente o Master vê a lista de gestão e config
     if credentials.username == "admin_maisvelho" and credentials.password == "maisvelhoadmin":
         users = list(col_users.find({}, {"_id": 0, "password": 0}))
-        return {"users": users}
+        return {"users": users, "auto_saque": CFG["auto_saque"]}
     raise HTTPException(401, "Apenas o Admin Master pode gerir usuários")
+
+@app.post("/api/admin/config")
+async def api_admin_config(data: dict, credentials: HTTPBasicCredentials = Depends(security)):
+    if credentials.username != "admin_maisvelho": raise HTTPException(401)
+    if "auto_saque" in data:
+        CFG["auto_saque"] = bool(data["auto_saque"])
+    return {"success": True, "auto_saque": CFG["auto_saque"]}
 
 @app.post("/api/users")
 async def api_create_user(data: dict, credentials: HTTPBasicCredentials = Depends(security)):
