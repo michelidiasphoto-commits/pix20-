@@ -37,17 +37,10 @@ def load_cfg():
         "webhook_url": get_env("WEBHOOK_URL", "https://pix20.onrender.com"),
         "parceiros": {"admin": "admin_master_key_123"}
     }
-    BASE = os.path.dirname(os.path.abspath(__file__))
-    CFG_FILE = os.path.join(BASE, "sigilopay_config.json")
-    if os.path.exists(CFG_FILE):
-        try:
-            with open(CFG_FILE, "r", encoding="utf-8") as f:
-                local_cfg = json.load(f)
-                cfg.update(local_cfg)
-        except: pass
     return cfg
 
 CFG = load_cfg()
+BASE = os.path.dirname(os.path.abspath(__file__))
 MONGO_URI = get_env("MONGO_URI", "mongodb+srv://michelidiasphoto_db_user:lVN70gFWTgsecLTw@cluster0.eb7vf2i.mongodb.net/?appName=Cluster0")
 DB_NAME = get_env("MONGO_DB_NAME", "sigilopay_db")
 
