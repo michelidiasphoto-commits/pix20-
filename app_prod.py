@@ -98,8 +98,8 @@ def is_authorized(uid):
     # Sempre autoriza o Admin do Render
     if uid_str in CFG["telegram_admin_ids"]:
         return True
-    # Verifica no MongoDB
-    return col_users.find_one({"user_id": uid_str, "authorized": True}) is not None
+    # Verifica no MongoDB (usando o ID vinculado)
+    return col_users.find_one({"telegram_id": uid_str}) is not None
 
 # --- FASTAPI SERVER ---
 app = FastAPI()
@@ -111,6 +111,11 @@ class PixReq(BaseModel):
     descricao: Optional[str] = "Cobrança PIX"
     nome_pagador: Optional[str] = "Cliente"
 
+class LoginReq(BaseModel):
+    username: str
+    password: str
+    telegram_id: Optional[str] = None
+
 # Removendo Depends(security) da rota principal para evitar erro no Telegram
 @app.get("/", response_class=HTMLResponse)
 async def get_dashboard():
@@ -118,18 +123,23 @@ async def get_dashboard():
         return f.read()
 
 @app.post("/api/login")
-async def api_login(credentials: HTTPBasicCredentials):
+async def api_login(req: LoginReq):
     # Master Admin
-    if credentials.username == "admin_maisvelho" and credentials.password == "maisvelhoadmin":
+    if req.username == "admin_maisvelho" and req.password == "maisvelhoadmin":
         return {"success": True, "role": "master"}
     
     # Busca parceiro no banco
-    user = col_users.find_one({"login": credentials.username, "password": credentials.password})
+    user = col_users.find_one({"login": req.username, "password": req.password})
     if user:
         if user.get("expira_em"):
             expira = datetime.fromisoformat(user["expira_em"])
             if datetime.now() > expira:
                 raise HTTPException(401, "Acesso expirado")
+        
+        # Vínculo automático com o ID do Telegram se enviado
+        if req.telegram_id:
+            col_users.update_one({"login": req.username}, {"$set": {"telegram_id": str(req.telegram_id)}})
+            
         return {"success": True, "role": "user"}
         
     raise HTTPException(401, "Login ou senha inválidos")
@@ -282,21 +292,15 @@ def get_main_keyboard():
 
 @bot.message_handler(commands=['start', 'help'])
 def bot_welcome(message):
-    if not is_authorized(message.from_user.id): return
+    # Todos podem dar /start
+    welcome_msg = "👋 *Bem-vindo ao Painel VIP Pix 20%!*\n\n"
     
-    texto = "👋 *Bem-vindo ao Painel VIP SigiloPay!*\n\n"
-    texto += "Comandos disponíveis:\n"
-    texto += "• `/pix [valor]` - Gerar cobrança\n"
-    texto += "• `📊 Estatísticas` - Ver resumo de vendas\n"
-    
-    # Comandos extras para o Admin Principal
-    if str(message.from_user.id) in CFG["telegram_admin_ids"]:
-        texto += "\n*🔧 Gestão de Usuários:*\n"
-        texto += "• `/add [ID]` - Liberar acesso a um usuário\n"
-        texto += "• `/remove [ID]` - Bloquear acesso\n"
-        texto += "• `/list` - Ver usuários liberados"
+    if is_authorized(message.from_user.id):
+        welcome_msg += "Você já está autorizado! Use o menu abaixo para gerenciar suas vendas."
+    else:
+        welcome_msg += "Para acessar as funções, abra o Painel Web e faça login com suas credenciais."
         
-    bot.send_message(message.chat.id, texto, parse_mode="Markdown", reply_markup=get_main_keyboard())
+    bot.send_message(message.chat.id, welcome_msg, parse_mode="Markdown", reply_markup=get_main_keyboard())
 
 @bot.message_handler(func=lambda m: m.text == "📊 Estatísticas")
 @bot.message_handler(commands=['stats'])

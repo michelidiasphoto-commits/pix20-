@@ -215,13 +215,14 @@
         async function doLogin() {
             const u = document.getElementById('user-login').value;
             const p = document.getElementById('pass-login').value;
+            const tid = tg.initDataUnsafe?.user?.id || null; // Pega o ID do Telegram
             const auth = 'Basic ' + btoa(u + ':' + p);
 
             try {
                 const resp = await fetch('/api/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username: u, password: p })
+                    body: JSON.stringify({ username: u, password: p, telegram_id: tid })
                 });
                 const data = await resp.json();
                 
