@@ -16,33 +16,40 @@ import telebot
 from telebot import types
 from pymongo import MongoClient
 from fastapi.responses import HTMLResponse
+import qrcode
+from io import BytesIO
 
 # --- CONFIGURAÇÃO ---
-# No Render, as variáveis de ambiente são preferíveis, mas manteremos o fallback para seu JSON
-MONGO_URI = "mongodb+srv://michelidiasphoto_db_user:lVN70gFWTgsecLTw@cluster0.eb7vf2i.mongodb.net/?appName=Cluster0"
-DB_NAME = "sigilopay_db"
-
-# Tenta carregar do config local se existir, senão usa padrões
-BASE = os.path.dirname(os.path.abspath(__file__))
-CFG_FILE = os.path.join(BASE, "sigilopay_config.json")
+def get_env(key, default):
+    return os.environ.get(key, default)
 
 def load_cfg():
+    # Pega lista de IDs autorizados (separados por vírgula)
+    admin_ids_raw = get_env("TELEGRAM_ADMIN_ID", "8084292904")
+    admin_ids = [s.strip() for s in admin_ids_raw.split(",")]
+
+    cfg = {
+        "public_key": get_env("SIGILOPAY_PUBLIC_KEY", "laispereiraphoto_2s0vatrdx6coy3pp"),
+        "secret_key": get_env("SIGILOPAY_SECRET_KEY", "kqkjdw66o0hv37gz2w4n15m5thp0w2jv6txe1k4ss7354169260wdpqegta7en2v"),
+        "api_base": get_env("SIGILOPAY_API_BASE", "https://app.sigilopay.com.br"),
+        "telegram_token": get_env("TELEGRAM_TOKEN", "8618759737:AAH8JRKP_7Xm_nPXMiSxelKsPLbJMaRwM-M"),
+        "telegram_admin_ids": admin_ids,
+        "webhook_url": get_env("WEBHOOK_URL", "https://pix20.onrender.com"),
+        "parceiros": {"admin": "admin_master_key_123"}
+    }
+    BASE = os.path.dirname(os.path.abspath(__file__))
+    CFG_FILE = os.path.join(BASE, "sigilopay_config.json")
     if os.path.exists(CFG_FILE):
         try:
             with open(CFG_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                local_cfg = json.load(f)
+                cfg.update(local_cfg)
         except: pass
-    return {
-        "public_key": "laispereiraphoto_2s0vatrdx6coy3pp",
-        "secret_key": "kqkjdw66o0hv37gz2w4n15m5thp0w2jv6txe1k4ss7354169260wdpqegta7en2v",
-        "api_base": "https://app.sigilopay.com.br",
-        "telegram_token": "8618759737:AAH8JRKP_7Xm_nPXMiSxelKsPLbJMaRwM-M",
-        "telegram_admin_id": "8084292904",
-        "webhook_url": "http://localhost:8000", # Será atualizado pelo Render
-        "parceiros": {"admin": "admin_master_key_123"}
-    }
+    return cfg
 
 CFG = load_cfg()
+MONGO_URI = get_env("MONGO_URI", "mongodb+srv://michelidiasphoto_db_user:lVN70gFWTgsecLTw@cluster0.eb7vf2i.mongodb.net/?appName=Cluster0")
+DB_NAME = get_env("MONGO_DB_NAME", "sigilopay_db")
 
 # --- MONGODB SETUP ---
 client = MongoClient(MONGO_URI)
@@ -81,6 +88,24 @@ def db_stats():
     res = list(col_cobrancas.aggregate(pipeline))
     valor = res[0]["total"] if res else 0
     return {"total": total, "pago": pago, "valor": valor}
+
+# --- GESTÃO DE USUÁRIOS NO MONGO ---
+def bot_user_add(uid):
+    col_users.update_one({"user_id": str(uid)}, {"$set": {"authorized": True}}, upsert=True)
+
+def bot_user_remove(uid):
+    col_users.delete_one({"user_id": str(uid)})
+
+def bot_user_list():
+    return [u["user_id"] for u in col_users.find({"authorized": True})]
+
+def is_authorized(uid):
+    uid_str = str(uid)
+    # Sempre autoriza o Admin do Render
+    if uid_str in CFG["telegram_admin_ids"]:
+        return True
+    # Verifica no MongoDB
+    return col_users.find_one({"user_id": uid_str, "authorized": True}) is not None
 
 # --- FASTAPI SERVER ---
 app = FastAPI()
@@ -162,8 +187,12 @@ async def webhook(request: Request):
     if tid and status.lower() in ("paid", "pago", "completed", "approved"):
         db_update(tid, "pago")
         
-        # Notifica no Telegram
-        bot.send_message(CFG["telegram_admin_id"], f"✅ *PAGAMENTO RECEBIDO!*\\n💰 Valor: R$ {db_status(tid).get('valor')}\\n🆔 ID: `{tid}`", parse_mode="Markdown")
+        # Notifica no Telegram (todos os admins)
+        msg_notif = f"✅ *PAGAMENTO RECEBIDO!*\n💰 Valor: R$ {db_status(tid).get('valor')}\n🆔 ID: `{tid}`"
+        for admin_id in CFG["telegram_admin_ids"]:
+            try:
+                bot.send_message(admin_id, msg_notif, parse_mode="Markdown")
+            except: pass
         
     return {"received": True}
 
@@ -183,21 +212,64 @@ def get_main_keyboard():
 
 @bot.message_handler(commands=['start', 'help'])
 def bot_welcome(message):
-    if str(message.from_user.id) != str(CFG["telegram_admin_id"]): return
-    bot.send_message(message.chat.id, "👋 *Bem-vindo ao Painel VIP SigiloPay!*\\n\\nAgora você tem um **Web App** dentro do Telegram para gerenciar tudo.", 
-                     parse_mode="Markdown", reply_markup=get_main_keyboard())
+    if not is_authorized(message.from_user.id): return
+    
+    texto = "👋 *Bem-vindo ao Painel VIP SigiloPay!*\n\n"
+    texto += "Comandos disponíveis:\n"
+    texto += "• `/pix [valor]` - Gerar cobrança\n"
+    texto += "• `📊 Estatísticas` - Ver resumo de vendas\n"
+    
+    # Comandos extras para o Admin Principal
+    if str(message.from_user.id) in CFG["telegram_admin_ids"]:
+        texto += "\n*🔧 Gestão de Usuários:*\n"
+        texto += "• `/add [ID]` - Liberar acesso a um usuário\n"
+        texto += "• `/remove [ID]` - Bloquear acesso\n"
+        texto += "• `/list` - Ver usuários liberados"
+        
+    bot.send_message(message.chat.id, texto, parse_mode="Markdown", reply_markup=get_main_keyboard())
 
 @bot.message_handler(func=lambda m: m.text == "📊 Estatísticas")
 @bot.message_handler(commands=['stats'])
 def bot_stats_reply(message):
-    if str(message.from_user.id) != str(CFG["telegram_admin_id"]): return
+    if not is_authorized(message.from_user.id): return
     s = db_stats()
-    text = f"📊 *Resumo Geral*\\n\\nTotal Cobranças: {s['total']}\\nConfirmadas: {s['pago']}\\nTotal: *R$ {s['valor']:.2f}*"
+    text = f"📊 *Resumo Geral*\n\nTotal Cobranças: {s['total']}\nConfirmadas: {s['pago']}\nTotal: *R$ {s['valor']:.2f}*"
     bot.send_message(message.chat.id, text, parse_mode="Markdown")
+
+@bot.message_handler(commands=['add'])
+def bot_add_user(message):
+    # Só o Admin do Render pode adicionar outros
+    if str(message.from_user.id) not in CFG["telegram_admin_ids"]: return
+    parts = message.text.split()
+    if len(parts) < 2:
+        bot.reply_to(message, "Use: `/add [ID]`")
+        return
+    bot_user_add(parts[1])
+    bot.reply_to(message, f"✅ Usuário `{parts[1]}` liberado!")
+
+@bot.message_handler(commands=['remove'])
+def bot_del_user(message):
+    if str(message.from_user.id) not in CFG["telegram_admin_ids"]: return
+    parts = message.text.split()
+    if len(parts) < 2:
+        bot.reply_to(message, "Use: `/remove [ID]`")
+        return
+    bot_user_remove(parts[1])
+    bot.reply_to(message, f"❌ Usuário `{parts[1]}` removido!")
+
+@bot.message_handler(commands=['list'])
+def bot_list_users(message):
+    if str(message.from_user.id) not in CFG["telegram_admin_ids"]: return
+    users = bot_user_list()
+    if not users:
+        bot.reply_to(message, "Nenhum usuário extra cadastrado.")
+        return
+    texto = "👥 *Usuários Liberados:*\n\n" + "\n".join([f"• `{u}`" for u in users])
+    bot.send_message(message.chat.id, texto, parse_mode="Markdown")
 
 @bot.message_handler(commands=['pix'])
 def bot_pix(message):
-    if str(message.from_user.id) != str(CFG["telegram_admin_id"]): return
+    if not is_authorized(message.from_user.id): return
     
     parts = message.text.split()
     if len(parts) < 2:
@@ -260,15 +332,30 @@ def bot_pix(message):
         # Salva no MongoDB
         db_criar(str(tid), "Telegram Bot", valor, "", qrt)
 
+        # Gera imagem do QR Code
+        qr = qrcode.QRCode(version=1, box_size=10, border=5)
+        qr.add_data(qrt)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        
+        # Salva em memória
+        bio = BytesIO()
+        bio.name = 'qrcode.png'
+        img.save(bio, 'PNG')
+        bio.seek(0)
+
         # Resposta final para o usuário
         texto_final = (
-            f"✅ *PIX GERADO COM SUCESSO!*\\n\\n"
-            f"💰 *Valor:* R$ {valor:.2f}\\n"
-            f"🆔 *ID:* `{tid}`\\n\\n"
-            f"👇 *Copia e Cola:*\\n"
-            f"`{qrt}`"
+            f"✅ *PIX GERADO COM SUCESSO!*\n\n"
+            f"💰 *Valor:* R$ {valor:.2f}\n"
+            f"🆔 *ID:* `{tid}`\n\n"
+            f"👇 *Copia e Cola:*"
         )
-        bot.edit_message_text(texto_final, message.chat.id, msg_espera.message_id, parse_mode="Markdown")
+        
+        # Remove mensagem de espera e envia Foto + Texto
+        bot.delete_message(message.chat.id, msg_espera.message_id)
+        bot.send_photo(message.chat.id, bio, caption=texto_final, parse_mode="Markdown")
+        bot.send_message(message.chat.id, f"`{qrt}`", parse_mode="Markdown")
 
     except Exception as e:
         bot.edit_message_text(f"❌ *Erro interno:* {str(e)}", message.chat.id, msg_espera.message_id, parse_mode="Markdown")
