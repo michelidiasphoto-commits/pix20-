@@ -125,23 +125,34 @@ class PixReq(BaseModel):
 # --- ENDPOINTS WEB APP ---
 
 @app.get("/", response_class=HTMLResponse)
-async def get_dashboard(user: str = Depends(check_auth)):
+async def get_dashboard(credentials: HTTPBasicCredentials = Depends(security)):
+    if credentials.username != "admin_maisvelho" or credentials.password != "maisvelhoadmin":
+        raise HTTPException(
+            status_code=401,
+            detail="Login ou senha incorretos",
+            headers={"WWW-Authenticate": "Basic"},
+        )
     with open(os.path.join(BASE, "dashboard.html"), "r", encoding="utf-8") as f:
         return f.read()
 
 @app.get("/api/stats")
-async def api_stats(user: str = Depends(check_auth)):
-    return db_stats()
+async def api_stats(credentials: HTTPBasicCredentials = Depends(security)):
+    if credentials.username == "admin_maisvelho" and credentials.password == "maisvelhoadmin":
+        return db_stats()
+    raise HTTPException(401, "Não autorizado")
 
 @app.get("/api/users")
-async def api_users(user: str = Depends(check_auth)):
-    return {"users": bot_user_list()}
+async def api_users(credentials: HTTPBasicCredentials = Depends(security)):
+    if credentials.username == "admin_maisvelho" and credentials.password == "maisvelhoadmin":
+        return {"users": bot_user_list()}
+    raise HTTPException(401, "Não autorizado")
 
 @app.post("/api/gerar_pix_web")
-async def gerar_pix_web(req: PixReq, user: str = Depends(check_auth)):
-    # Simula chamada interna do bot
-    res = await gerar_pix(req, CFG["parceiros"].get("admin", "admin_master_key_123"))
-    return res
+async def gerar_pix_web(req: PixReq, credentials: HTTPBasicCredentials = Depends(security)):
+    if credentials.username == "admin_maisvelho" and credentials.password == "maisvelhoadmin":
+        res = await gerar_pix(req, CFG["parceiros"].get("admin", "admin_master_key_123"))
+        return res
+    raise HTTPException(401, "Não autorizado")
 
 @app.post("/gerar_pix")
 async def gerar_pix(body: PixReq, x_partner_key: str = Header(...)):
