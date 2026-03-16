@@ -222,7 +222,8 @@
                 
                 if (data.success) {
                     document.getElementById('qr-text').innerText = data.qr_text;
-                    const qrUrl = `https://chart.googleapis.com/chart?chs=200x200&cht=qr&chl=${encodeURIComponent(data.qr_text)}`;
+                    // Usando API QRServer que é mais estável para strings longas de PIX
+                    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(data.qr_text)}`;
                     document.getElementById('qr-image').src = qrUrl;
                     document.getElementById('result-area').style.display = 'block';
                 } else {
