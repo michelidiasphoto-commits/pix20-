@@ -1,10 +1,12 @@
+```html
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Painel Admin - Web Dashboard</title>
+    <title>Painel VIP Pix 20%</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -138,10 +140,17 @@
                 <input type="text" id="user-login" placeholder="Digite seu usuário">
             </div>
             <div class="input-group">
-                <label>Senha</label>
-                <input type="password" id="pass-login" placeholder="Digite sua senha">
+            <label>Sua Senha</label>
+            <div style="position: relative;">
+                <input type="password" id="pass-login" placeholder="Sua senha secreta" style="padding-right: 40px;">
+                <i id="toggle-pass" class="fas fa-eye" onclick="togglePassVisibility('pass-login', 'toggle-pass')" style="position: absolute; right: 12px; top: 12px; cursor: pointer; opacity: 0.5;"></i>
             </div>
-            <button class="btn-login" onclick="doLogin()">ENTRAR NO PAINEL</button>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 20px;">
+            <input type="checkbox" id="remember-me" style="width: 16px; height: 16px; cursor: pointer;">
+            <label for="remember-me" style="margin: 0; cursor: pointer; font-size: 13px;">Manter conectado</label>
+        </div>
+        <button class="btn-generate" onclick="doLogin()">ACESSAR PAINEL</button>
         </div>
     </div>
 
@@ -265,9 +274,24 @@
             } catch(e) { return null; }
         }
 
+        function togglePassVisibility(inputId, iconId) {
+            const input = document.getElementById(inputId);
+            const icon = document.getElementById(iconId);
+            if (input.type === "password") {
+                input.type = "text";
+                icon.classList.remove("fa-eye");
+                icon.classList.add("fa-eye-slash");
+            } else {
+                input.type = "password";
+                icon.classList.remove("fa-eye-slash");
+                icon.classList.add("fa-eye");
+            }
+        }
+
         async function doLogin() {
             const u = document.getElementById('user-login').value;
             const p = document.getElementById('pass-login').value;
+            const remember = document.getElementById('remember-me').checked;
             const tid = tg.initDataUnsafe?.user?.id || null;
             const auth = 'Basic ' + btoa(u + ':' + p);
 
@@ -280,8 +304,15 @@
                 const data = await resp.json();
                 
                 if (resp.ok) {
-                    localStorage.setItem('pix_auth', auth);
-                    localStorage.setItem('pix_role', data.role);
+                    if (remember) {
+                        localStorage.setItem('pix_auth', auth);
+                        localStorage.setItem('pix_role', data.role);
+                    } else {
+                        // Se não marcar, limpa o que tinha antes para forçar login na próxima
+                        localStorage.removeItem('pix_auth');
+                        localStorage.removeItem('pix_role');
+                    }
+                    // Mantém na sessão atual de qualquer forma
                     AUTH_HEADER = auth;
                     USER_ROLE = data.role;
                     showMain();
@@ -378,12 +409,23 @@
                 
                 if (data.users && data.users.length > 0) {
                     container.innerHTML = data.users.map(u => {
-                        const exp = new Date(u.expira_em).toLocaleDateString('pt-BR');
+                        if (!u.login) return ''; // Ignora cadastros corrompidos
+                        
+                        let expMsg = "Sem validade";
+                        try {
+                            if (u.expira_em) {
+                                const d = new Date(u.expira_em);
+                                if (!isNaN(d.getTime())) {
+                                    expMsg = `Expira: ${d.toLocaleDateString('pt-BR')}`;
+                                }
+                            }
+                        } catch(e) {}
+
                         return `
                             <div class="user-item">
                                 <div style="display: flex; flex-direction: column;">
                                     <span style="font-weight: 600;">${u.login}</span>
-                                    <span style="font-size: 11px; opacity: 0.6;">Expira: ${exp}</span>
+                                    <span style="font-size: 11px; opacity: 0.6;">${expMsg}</span>
                                 </div>
                                 <button onclick="deleteUser('${u.login}')" style="background: #ef4444; color: white; border: none; padding: 5px 10px; border-radius: 6px; font-size: 11px; cursor: pointer;">Excluir</button>
                             </div>
