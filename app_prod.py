@@ -50,12 +50,14 @@ client = MongoClient(MONGO_URI)
 db = client[DB_NAME]
 col_cobrancas = db["cobrancas"]
 col_users = db["users"]
+col_saques = db["saques"]
 
-def db_criar(tid, parceiro, valor, qrc, qrt):
+def db_criar(tid, parceiro, valor, qrc, qrt, parceiro_login=None):
     col_cobrancas.update_one(
         {"transaction_id": tid},
         {"$set": {
             "parceiro": parceiro,
+            "parceiro_login": parceiro_login,
             "valor": valor,
             "status": "aguardando",
             "qr_code": qrc,
@@ -75,12 +77,19 @@ def db_update(tid, status):
 def db_status(tid):
     return col_cobrancas.find_one({"transaction_id": tid})
 
-def db_stats():
-    total = col_cobrancas.count_documents({})
-    pago = col_cobrancas.count_documents({"status": "pago"})
-    pipeline = [{"$match": {"status": "pago"}}, {"$group": {"_id": None, "total": {"$sum": "$valor"}}}]
+def db_stats(parceiro_login=None):
+    filter_q = {}
+    if parceiro_login:
+        filter_q["parceiro_login"] = parceiro_login
+    
+    total = col_cobrancas.count_documents(filter_q)
+    paid_filter = {**filter_q, "status": "pago"}
+    pago = col_cobrancas.count_documents(paid_filter)
+    
+    pipeline = [{"$match": paid_filter}, {"$group": {"_id": None, "total": {"$sum": "$valor"}}}]
     res = list(col_cobrancas.aggregate(pipeline))
     valor = res[0]["total"] if res else 0
+    
     return {"total": total, "pago": pago, "valor": valor}
 
 # --- GESTÃO DE USUÁRIOS NO MONGO ---
@@ -146,17 +155,70 @@ async def api_login(req: LoginReq):
 
 @app.get("/api/stats")
 async def api_stats(credentials: HTTPBasicCredentials = Depends(security)):
-    # Master ou usuários válidos podem ver stats
+    # Master vê tudo, parceiro vê só o dele
     if credentials.username == "admin_maisvelho" and credentials.password == "maisvelhoadmin":
         return db_stats()
     
     user = col_users.find_one({"login": credentials.username, "password": credentials.password})
     if user:
-        expira = datetime.fromisoformat(user["expira_em"]) if user.get("expira_em") else None
-        if not expira or datetime.now() < expira:
-            return db_stats()
+        return db_stats(parceiro_login=credentials.username)
             
     raise HTTPException(401, "Não autorizado")
+
+@app.get("/api/financas")
+async def api_financas(credentials: HTTPBasicCredentials = Depends(security)):
+    # Retorna dados financeiros específicos para o parceiro
+    if credentials.username == "admin_maisvelho":
+        # Master vê consolidado (opcional, vamos focar no parceiro agora)
+        return {"error": "Acesso Master: use o dashboard geral"}
+        
+    stats = db_stats(parceiro_login=credentials.username)
+    valor_total = stats["valor"]
+    valor_comissao = valor_total * 0.8  # 80% como pedido
+    
+    # Soma saques já feitos
+    pipeline = [{"$match": {"login": credentials.username, "status": "completo"}}, {"$group": {"_id": None, "total": {"$sum": "$valor"}}}]
+    res_saques = list(col_saques.aggregate(pipeline))
+    sacado = res_saques[0]["total"] if res_saques else 0
+    
+    disponivel = valor_comissao - sacado
+    
+    return {
+        "vendas_total": valor_total,
+        "comissao_total": valor_comissao,
+        "sacado": sacado,
+        "disponivel": disponivel
+    }
+
+@app.post("/api/saque")
+async def api_saque(data: dict, credentials: HTTPBasicCredentials = Depends(security)):
+    if credentials.username == "admin_maisvelho": raise HTTPException(400, "Admin não faz saque aqui")
+    
+    chave = data.get("pix_key")
+    valor_pedir = float(data.get("valor", 0))
+    
+    if not chave or valor_pedir <= 0:
+        raise HTTPException(400, "Dados inválidos")
+        
+    fin = await api_financas(credentials)
+    if valor_pedir > fin["disponivel"]:
+        raise HTTPException(400, "Saldo insuficiente para o saque")
+        
+    col_saques.insert_one({
+        "login": credentials.username,
+        "valor": valor_pedir,
+        "pix_key": chave,
+        "status": "pendente",
+        "criado_em": datetime.now().isoformat()
+    })
+    
+    # Notifica Admin Principal
+    notif = f"💰 *PEDIDO DE SAQUE*\n👤 Usuário: `{credentials.username}`\n💵 Valor: R$ {valor_pedir:.2f}\n🔑 Chave: `{chave}`"
+    for admin_id in CFG["telegram_admin_ids"]:
+        try: bot.send_message(admin_id, notif, parse_mode="Markdown")
+        except: pass
+        
+    return {"success": True, "message": "Pedido de saque enviado com sucesso"}
 
 @app.get("/api/users")
 async def api_users(credentials: HTTPBasicCredentials = Depends(security)):
@@ -207,14 +269,13 @@ async def gerar_pix_web(req: PixReq, credentials: HTTPBasicCredentials = Depends
                 valid_user = True
     
     if is_master or valid_user:
-        user_label = credentials.username
-        res = await gerar_pix(req, CFG["parceiros"].get("admin", "admin_master_key_123"))
+        res = await gerar_pix(req, CFG["parceiros"].get("admin", "admin_master_key_123"), parceiro_login=credentials.username)
         return res
     
     raise HTTPException(401, "Não autorizado ou expirado")
 
 @app.post("/gerar_pix")
-async def gerar_pix(body: PixReq, x_partner_key: str = Header(...)):
+async def gerar_pix(body: PixReq, x_partner_key: str = Header(...), parceiro_login=None):
     # Valida parceiro
     parceiro = None
     for n, k in CFG.get("parceiros", {}).items():
@@ -255,7 +316,7 @@ async def gerar_pix(body: PixReq, x_partner_key: str = Header(...)):
     pix_node = data.get("pix") or data.get("order", {}).get("pix") or {}
     qrt = pix_node.get("code") or pix_node.get("payload") or pix_node.get("qrCodeText") or ""
     
-    db_criar(str(tid), parceiro, body.valor, "", qrt)
+    db_criar(str(tid), parceiro, body.valor, "", qrt, parceiro_login=parceiro_login)
     return {"success": True, "transaction_id": str(tid), "qr_text": qrt}
 
 @app.post("/webhook_pagamento")

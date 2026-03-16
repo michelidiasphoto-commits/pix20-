@@ -181,6 +181,35 @@
             </div>
         </div>
 
+        <!-- SEÇÃO DE FINANÇAS (SOMENTE PARA PARCEIROS) -->
+        <div id="financeiro-section" style="display: none;" class="action-card">
+            <h2>💰 Finanças e Saque</h2>
+            <div class="stats-grid" style="margin-bottom: 20px;">
+                <div class="stat-card" style="background: rgba(0,0,0,0.2);">
+                    <span>Comissão (80%)</span>
+                    <strong id="fin-comissao" style="color: #60a5fa;">R$ 0,00</strong>
+                </div>
+                <div class="stat-card" style="background: rgba(0,0,0,0.2);">
+                    <span>Disponível</span>
+                    <strong id="fin-disponivel">R$ 0,00</strong>
+                </div>
+            </div>
+
+            <div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 12px;">
+                <p style="font-size: 13px; margin-bottom: 12px; font-weight: 600;">💸 Solicitar Saque PIX</p>
+                <div class="input-group">
+                    <label>Chave PIX (CPF, Celular, E-mail ou Aleatória)</label>
+                    <input type="text" id="saque-pix-key" placeholder="Sua chave PIX">
+                </div>
+                <div class="input-group">
+                    <label>Valor do Saque (R$)</label>
+                    <input type="number" id="saque-valor" placeholder="0.00" step="0.01">
+                </div>
+                <button class="btn-generate" onclick="requestSaque()" style="background: #a855f7; color: white;">SOLICITAR SAQUE</button>
+            </div>
+            <p style="font-size: 10px; opacity: 0.5; margin-top: 10px; text-align: center;">O pagamento será processado pelo administrador em até 24h.</p>
+        </div>
+
         <div id="user-management-section" style="display: none;" class="action-card">
             <h2>👥 Gestão de Parceiros</h2>
             <div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 12px; margin-bottom: 20px;">
@@ -210,12 +239,12 @@
         tg.ready();
 
         let AUTH_HEADER = localStorage.getItem('pix_auth');
-        let USER_ROLE = '';
+        let USER_ROLE = localStorage.getItem('pix_role') || '';
 
         async function doLogin() {
             const u = document.getElementById('user-login').value;
             const p = document.getElementById('pass-login').value;
-            const tid = tg.initDataUnsafe?.user?.id || null; // Pega o ID do Telegram
+            const tid = tg.initDataUnsafe?.user?.id || null;
             const auth = 'Basic ' + btoa(u + ':' + p);
 
             try {
@@ -228,6 +257,7 @@
                 
                 if (resp.ok) {
                     localStorage.setItem('pix_auth', auth);
+                    localStorage.setItem('pix_role', data.role);
                     AUTH_HEADER = auth;
                     USER_ROLE = data.role;
                     showMain();
@@ -243,10 +273,15 @@
             document.getElementById('login-screen').style.display = 'none';
             document.getElementById('main-content').style.display = 'block';
             
-            // Só mostra gestão se for Master
             if (USER_ROLE === 'master') {
                 document.getElementById('user-management-section').style.display = 'block';
+                document.getElementById('financeiro-section').style.display = 'none';
                 loadUsers();
+            } else {
+                document.getElementById('user-management-section').style.display = 'none';
+                document.getElementById('financeiro-section').style.display = 'block';
+                loadFinancas();
+                setInterval(loadFinancas, 10000);
             }
 
             loadStats();
@@ -262,6 +297,39 @@
                 document.getElementById('stat-pago').innerText = data.pago;
                 document.getElementById('stat-valor').innerText = `R$ ${data.valor.toFixed(2)}`;
             } catch (e) { console.error(e); }
+        }
+
+        async function loadFinancas() {
+            try {
+                const resp = await fetch('/api/financas', { headers: { 'Authorization': AUTH_HEADER } });
+                const data = await resp.json();
+                if (data.disponivel !== undefined) {
+                    document.getElementById('fin-comissao').innerText = `R$ ${data.comissao_total.toFixed(2)}`;
+                    document.getElementById('fin-disponivel').innerText = `R$ ${data.disponivel.toFixed(2)}`;
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        async function requestSaque() {
+            const pix = document.getElementById('saque-pix-key').value;
+            const val = document.getElementById('saque-valor').value;
+
+            if (!pix || !val || val <= 0) return tg.showAlert("Preencha a chave e um valor válido!");
+
+            try {
+                const resp = await fetch('/api/saque', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': AUTH_HEADER },
+                    body: JSON.stringify({ pix_key: pix, valor: parseFloat(val) })
+                });
+                const res = await resp.json();
+                if (resp.ok) {
+                    tg.showAlert("✅ Pedido de saque enviado!");
+                    loadFinancas();
+                } else {
+                    tg.showAlert("❌ Erro: " + res.detail);
+                }
+            } catch (e) { tg.showAlert("Erro ao solicitar saque."); }
         }
 
         async function loadUsers() {
@@ -350,6 +418,7 @@
 
         function logout() {
             localStorage.removeItem('pix_auth');
+            localStorage.removeItem('pix_role');
             location.reload();
         }
 
@@ -360,10 +429,7 @@
             setTimeout(() => tg.closeScanQrPopup(), 1000);
         }
 
-        // Tenta auto-login se tiver cache
         if (AUTH_HEADER) {
-            // Re-valida o role no auto-login básico
-            USER_ROLE = 'master'; // Fallback ou podemos chamar /api/login de novo
             showMain();
         }
     </script>
