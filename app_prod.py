@@ -7,7 +7,7 @@ import random
 import threading
 import httpx
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, Header, Request
+from fastapi import FastAPI, HTTPException, Header, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
@@ -16,6 +16,7 @@ import telebot
 from telebot import types
 from pymongo import MongoClient
 from fastapi.responses import HTMLResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 import qrcode
 from io import BytesIO
 
@@ -103,6 +104,18 @@ def is_authorized(uid):
 # --- FASTAPI SERVER ---
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+security = HTTPBasic()
+
+def check_auth(credentials: HTTPBasicCredentials = Depends(security)):
+    correct_user = secrets.compare_digest(credentials.username, "admin_maisvelho")
+    correct_pass = secrets.compare_digest(credentials.password, "maisvelhoadmin")
+    if not (correct_user and correct_pass):
+        raise HTTPException(
+            status_code=401,
+            detail="Não autorizado",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
 
 class PixReq(BaseModel):
     valor: float
@@ -112,20 +125,20 @@ class PixReq(BaseModel):
 # --- ENDPOINTS WEB APP ---
 
 @app.get("/", response_class=HTMLResponse)
-async def get_dashboard():
+async def get_dashboard(user: str = Depends(check_auth)):
     with open(os.path.join(BASE, "dashboard.html"), "r", encoding="utf-8") as f:
         return f.read()
 
 @app.get("/api/stats")
-async def api_stats():
+async def api_stats(user: str = Depends(check_auth)):
     return db_stats()
 
 @app.get("/api/users")
-async def api_users():
+async def api_users(user: str = Depends(check_auth)):
     return {"users": bot_user_list()}
 
 @app.post("/api/gerar_pix_web")
-async def gerar_pix_web(req: PixReq):
+async def gerar_pix_web(req: PixReq, user: str = Depends(check_auth)):
     # Simula chamada interna do bot
     res = await gerar_pix(req, CFG["parceiros"].get("admin", "admin_master_key_123"))
     return res
