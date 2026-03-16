@@ -106,34 +106,22 @@ app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 security = HTTPBasic()
 
-def check_auth(credentials: HTTPBasicCredentials = Depends(security)):
-    correct_user = secrets.compare_digest(credentials.username, "admin_maisvelho")
-    correct_pass = secrets.compare_digest(credentials.password, "maisvelhoadmin")
-    if not (correct_user and correct_pass):
-        raise HTTPException(
-            status_code=401,
-            detail="Não autorizado",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return credentials.username
-
 class PixReq(BaseModel):
     valor: float
     descricao: Optional[str] = "Cobrança PIX"
     nome_pagador: Optional[str] = "Cliente"
 
-# --- ENDPOINTS WEB APP ---
-
+# Removendo Depends(security) da rota principal para evitar erro no Telegram
 @app.get("/", response_class=HTMLResponse)
-async def get_dashboard(credentials: HTTPBasicCredentials = Depends(security)):
-    if credentials.username != "admin_maisvelho" or credentials.password != "maisvelhoadmin":
-        raise HTTPException(
-            status_code=401,
-            detail="Login ou senha incorretos",
-            headers={"WWW-Authenticate": "Basic"},
-        )
+async def get_dashboard():
     with open(os.path.join(BASE, "dashboard.html"), "r", encoding="utf-8") as f:
         return f.read()
+
+@app.post("/api/login")
+async def api_login(credentials: HTTPBasicCredentials):
+    if credentials.username == "admin_maisvelho" and credentials.password == "maisvelhoadmin":
+        return {"success": True}
+    raise HTTPException(401, "Login inválido")
 
 @app.get("/api/stats")
 async def api_stats(credentials: HTTPBasicCredentials = Depends(security)):
