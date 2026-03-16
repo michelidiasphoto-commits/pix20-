@@ -181,8 +181,23 @@
             </div>
         </div>
 
-        <div class="action-card">
-            <h2>👥 Usuários Liberados</h2>
+        <div id="user-management-section" style="display: none;" class="action-card">
+            <h2>👥 Gestão de Parceiros</h2>
+            <div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 12px; margin-bottom: 20px;">
+                <p style="font-size: 13px; margin-bottom: 12px; font-weight: 600;">➕ Cadastrar Novo Acesso</p>
+                <div class="input-group">
+                    <input type="text" id="new-user-login" placeholder="Login do parceiro">
+                </div>
+                <div class="input-group">
+                    <input type="text" id="new-user-pass" placeholder="Senha do parceiro">
+                </div>
+                <div class="input-group">
+                    <label>Validade em dias (ex: 30)</label>
+                    <input type="number" id="new-user-days" value="30">
+                </div>
+                <button class="btn-generate" onclick="createUser()">CADASTRAR PARCEIRO</button>
+            </div>
+
             <div id="user-list-container" class="user-list">
                 <p style="font-size: 12px; opacity: 0.5;">Carregando usuários...</p>
             </div>
@@ -195,6 +210,7 @@
         tg.ready();
 
         let AUTH_HEADER = localStorage.getItem('pix_auth');
+        let USER_ROLE = '';
 
         async function doLogin() {
             const u = document.getElementById('user-login').value;
@@ -207,26 +223,34 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ username: u, password: p })
                 });
+                const data = await resp.json();
                 
                 if (resp.ok) {
                     localStorage.setItem('pix_auth', auth);
                     AUTH_HEADER = auth;
+                    USER_ROLE = data.role;
                     showMain();
                 } else {
-                    tg.showAlert("Usuário ou senha incorretos!");
+                    tg.showAlert("Usuário ou senha incorretos ou expirados!");
                 }
             } catch (e) {
-                tg.showAlert("Erro ao conectar com o servidor.");
+                tg.showAlert("Erro ao conectar.");
             }
         }
 
         function showMain() {
             document.getElementById('login-screen').style.display = 'none';
             document.getElementById('main-content').style.display = 'block';
+            
+            // Só mostra gestão se for Master
+            if (USER_ROLE === 'master') {
+                document.getElementById('user-management-section').style.display = 'block';
+                loadUsers();
+            }
+
             loadStats();
-            loadUsers();
             setInterval(loadStats, 5000);
-            setInterval(loadUsers, 10000);
+            if (USER_ROLE === 'master') setInterval(loadUsers, 10000);
         }
 
         async function loadStats() {
@@ -247,24 +271,58 @@
                 const container = document.getElementById('user-list-container');
                 
                 if (data.users && data.users.length > 0) {
-                    container.innerHTML = data.users.map(u => `
-                        <div class="user-item">
-                            <span>ID: <code>${u}</code></span>
-                            <span style="font-size: 10px; background: #22c55e; color: #052e16; padding: 2px 6px; border-radius: 4px; font-weight: bold;">ATIVO</span>
-                        </div>
-                    `).join('');
+                    container.innerHTML = data.users.map(u => {
+                        const exp = new Date(u.expira_em).toLocaleDateString('pt-BR');
+                        return `
+                            <div class="user-item">
+                                <div style="display: flex; flex-direction: column;">
+                                    <span style="font-weight: 600;">${u.login}</span>
+                                    <span style="font-size: 11px; opacity: 0.6;">Expira: ${exp}</span>
+                                </div>
+                                <button onclick="deleteUser('${u.login}')" style="background: #ef4444; color: white; border: none; padding: 5px 10px; border-radius: 6px; font-size: 11px; cursor: pointer;">Excluir</button>
+                            </div>
+                        `;
+                    }).join('');
                 } else {
                     container.innerHTML = '<p style="font-size: 12px; opacity: 0.5;">Nenhum usuário liberado.</p>';
                 }
             } catch (e) { console.error(e); }
         }
 
+        async function createUser() {
+            const log = document.getElementById('new-user-login').value;
+            const pas = document.getElementById('new-user-pass').value;
+            const day = document.getElementById('new-user-days').value;
+
+            if (!log || !pas) return tg.showAlert("Preencha login e senha!");
+
+            try {
+                const resp = await fetch('/api/users', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': AUTH_HEADER },
+                    body: JSON.stringify({ login: log, password: pas, validade: day })
+                });
+                if (resp.ok) {
+                    tg.showAlert("Usuário cadastrado!");
+                    loadUsers();
+                }
+            } catch (e) { tg.showAlert("Erro ao cadastrar."); }
+        }
+
+        async function deleteUser(login) {
+            if (!confirm(`Deseja excluir ${login}?`)) return;
+            try {
+                const resp = await fetch(`/api/users/${login}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': AUTH_HEADER }
+                });
+                if (resp.ok) loadUsers();
+            } catch (e) { tg.showAlert("Erro ao excluir."); }
+        }
+
         async function generatePix() {
             const amount = document.getElementById('pix-amount').value;
-            if (!amount || amount <= 0) {
-                tg.showAlert("Por favor, insira um valor válido.");
-                return;
-            }
+            if (!amount || amount <= 0) return tg.showAlert("Valor inválido.");
 
             document.getElementById('loader').style.display = 'block';
             document.getElementById('result-area').style.display = 'none';
@@ -283,13 +341,10 @@
                     document.getElementById('qr-image').src = qrUrl;
                     document.getElementById('result-area').style.display = 'block';
                 } else {
-                    tg.showAlert("Erro ao gerar PIX: " + (data.message || "Erro desconhecido"));
+                    tg.showAlert("Erro: " + (data.message || "401"));
                 }
-            } catch (e) {
-                tg.showAlert("Erro de conexão.");
-            } finally {
-                document.getElementById('loader').style.display = 'none';
-            }
+            } catch (e) { tg.showAlert("Erro de conexão."); }
+            finally { document.getElementById('loader').style.display = 'none'; }
         }
 
         function logout() {
@@ -304,7 +359,10 @@
             setTimeout(() => tg.closeScanQrPopup(), 1000);
         }
 
+        // Tenta auto-login se tiver cache
         if (AUTH_HEADER) {
+            // Re-valida o role no auto-login básico
+            USER_ROLE = 'master'; // Fallback ou podemos chamar /api/login de novo
             showMain();
         }
     </script>

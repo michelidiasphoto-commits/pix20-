@@ -6,7 +6,7 @@ import secrets
 import random
 import threading
 import httpx
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException, Header, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -119,28 +119,89 @@ async def get_dashboard():
 
 @app.post("/api/login")
 async def api_login(credentials: HTTPBasicCredentials):
+    # Master Admin
     if credentials.username == "admin_maisvelho" and credentials.password == "maisvelhoadmin":
-        return {"success": True}
-    raise HTTPException(401, "Login inválido")
+        return {"success": True, "role": "master"}
+    
+    # Busca parceiro no banco
+    user = col_users.find_one({"login": credentials.username, "password": credentials.password})
+    if user:
+        if user.get("expira_em"):
+            expira = datetime.fromisoformat(user["expira_em"])
+            if datetime.now() > expira:
+                raise HTTPException(401, "Acesso expirado")
+        return {"success": True, "role": "user"}
+        
+    raise HTTPException(401, "Login ou senha inválidos")
 
 @app.get("/api/stats")
 async def api_stats(credentials: HTTPBasicCredentials = Depends(security)):
+    # Master ou usuários válidos podem ver stats
     if credentials.username == "admin_maisvelho" and credentials.password == "maisvelhoadmin":
         return db_stats()
+    
+    user = col_users.find_one({"login": credentials.username, "password": credentials.password})
+    if user:
+        expira = datetime.fromisoformat(user["expira_em"]) if user.get("expira_em") else None
+        if not expira or datetime.now() < expira:
+            return db_stats()
+            
     raise HTTPException(401, "Não autorizado")
 
 @app.get("/api/users")
 async def api_users(credentials: HTTPBasicCredentials = Depends(security)):
+    # Somente o Master vê a lista de gestão
     if credentials.username == "admin_maisvelho" and credentials.password == "maisvelhoadmin":
-        return {"users": bot_user_list()}
-    raise HTTPException(401, "Não autorizado")
+        users = list(col_users.find({}, {"_id": 0, "password": 0}))
+        return {"users": users}
+    raise HTTPException(401, "Apenas o Admin Master pode gerir usuários")
+
+@app.post("/api/users")
+async def api_create_user(data: dict, credentials: HTTPBasicCredentials = Depends(security)):
+    if credentials.username != "admin_maisvelho": raise HTTPException(401)
+    
+    login = data.get("login")
+    senha = data.get("password")
+    dias = int(data.get("validade", 30))
+    
+    expira_em = (datetime.now() + timedelta(days=dias)).isoformat()
+    
+    col_users.update_one(
+        {"login": login},
+        {"$set": {
+            "password": senha,
+            "expira_em": expira_em,
+            "criado_em": datetime.now().isoformat()
+        }},
+        upsert=True
+    )
+    return {"success": True}
+
+@app.delete("/api/users/{login}")
+async def api_delete_user(login: str, credentials: HTTPBasicCredentials = Depends(security)):
+    if credentials.username != "admin_maisvelho": raise HTTPException(401)
+    col_users.delete_one({"login": login})
+    return {"success": True}
 
 @app.post("/api/gerar_pix_web")
 async def gerar_pix_web(req: PixReq, credentials: HTTPBasicCredentials = Depends(security)):
-    if credentials.username == "admin_maisvelho" and credentials.password == "maisvelhoadmin":
+    # Valida se o usuário logado existe e não expirou
+    is_master = credentials.username == "admin_maisvelho" and credentials.password == "maisvelhoadmin"
+    valid_user = False
+    
+    if not is_master:
+        u = col_users.find_one({"login": credentials.username, "password": credentials.password})
+        if u:
+            exp = datetime.fromisoformat(u["expira_em"]) if u.get("expira_em") else None
+            if not exp or datetime.now() < exp:
+                valid_user = True
+    
+    if is_master or valid_user:
+        user_label = credentials.username
         res = await gerar_pix(req, CFG["parceiros"].get("admin", "admin_master_key_123"))
         return res
-    raise HTTPException(401, "Não autorizado")
+    
+    raise HTTPException(401, "Não autorizado ou expirado")
 
 @app.post("/gerar_pix")
 async def gerar_pix(body: PixReq, x_partner_key: str = Header(...)):
