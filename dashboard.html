@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SigiloPay Web Dashboard</title>
+    <title>Painel Admin - Web Dashboard</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
     <style>
@@ -46,7 +46,7 @@
             margin-bottom: 24px;
             border: 1px solid rgba(34, 197, 94, 0.2);
         }
-        .action-card h2 { font-size: 16px; margin-bottom: 16px; }
+        .action-card h2 { font-size: 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
         
         .input-group { margin-bottom: 16px; }
         .input-group label { display: block; font-size: 12px; margin-bottom: 6px; opacity: 0.8; }
@@ -82,7 +82,15 @@
             padding: 16px;
             border-radius: 12px;
             margin-top: 16px;
-            word-break: break-all;
+            text-align: center;
+        }
+        #qr-image {
+            width: 180px;
+            height: 180px;
+            margin: 10px auto;
+            display: block;
+            border: 8px solid white;
+            border-radius: 8px;
         }
         .copy-btn {
             background: #334155;
@@ -93,20 +101,41 @@
             font-size: 12px;
             margin-top: 10px;
             cursor: pointer;
+            width: 100%;
         }
 
         .loader { display: none; text-align: center; margin: 10px 0; font-size: 14px; color: var(--accent); }
+
+        .user-list { list-style: none; margin-top: 10px; }
+        .user-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 14px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 10px;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        .user-item .tag {
+            font-size: 10px;
+            background: var(--accent);
+            color: #052e16;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>SigiloPay Admin</h1>
+        <h1>Painel Admin</h1>
         <p>Gerenciamento em Tempo Real</p>
     </div>
 
     <div class="stats-grid">
         <div class="stat-card">
-            <span>Vendas Pack</span>
+            <span>Vendas</span>
             <strong id="stat-pago">0</strong>
         </div>
         <div class="stat-card">
@@ -116,26 +145,34 @@
     </div>
 
     <div class="action-card">
-        <h2>Gerar Novo PIX</h2>
+        <h2>🚀 Gerar Novo PIX</h2>
         <div class="input-group">
             <label>Valor (R$)</label>
             <input type="number" id="pix-amount" placeholder="Ex: 50.00" step="0.01">
         </div>
         <button class="btn-generate" onclick="generatePix()">GERAR PIX AGORA</button>
         
-        <div class="loader" id="loader">Processando com SigiloPay...</div>
+        <div class="loader" id="loader">Processando cobrança...</div>
 
         <div id="result-area">
-            <p style="font-size: 12px; margin-bottom: 8px; color: var(--accent);">✅ PIX Copia e Cola Gerado:</p>
-            <code id="qr-text" style="font-size: 11px; font-family: monospace; opacity: 0.8;"></code>
-            <br>
-            <button class="copy-btn" onclick="copyPix()">COPIAR CÓDIGO</button>
+            <p style="font-size: 13px; margin-bottom: 8px; color: var(--accent); font-weight: 600;">✅ PIX GERADO!</p>
+            <img id="qr-image" src="" alt="QR Code">
+            <code id="qr-text" style="display: none;"></code>
+            <button class="copy-btn" onclick="copyPix()">COPIAR CÓDIGO PIX</button>
+        </div>
+    </div>
+
+    <div class="action-card">
+        <h2>👥 Usuários Liberados</h2>
+        <div id="user-list-container" class="user-list">
+            <p style="font-size: 12px; opacity: 0.5;">Carregando usuários...</p>
         </div>
     </div>
 
     <script>
         const tg = window.Telegram.WebApp;
         tg.expand();
+        tg.ready();
 
         async function loadStats() {
             try {
@@ -143,6 +180,25 @@
                 const data = await resp.json();
                 document.getElementById('stat-pago').innerText = data.pago;
                 document.getElementById('stat-valor').innerText = `R$ ${data.valor.toFixed(2)}`;
+            } catch (e) { console.error(e); }
+        }
+
+        async function loadUsers() {
+            try {
+                const resp = await fetch('/api/users');
+                const data = await resp.json();
+                const container = document.getElementById('user-list-container');
+                
+                if (data.users && data.users.length > 0) {
+                    container.innerHTML = data.users.map(u => `
+                        <div class="user-item">
+                            <span>ID: <code>${u}</code></span>
+                            <span class="tag">ATIVO</span>
+                        </div>
+                    `).join('');
+                } else {
+                    container.innerHTML = '<p style="font-size: 12px; opacity: 0.5;">Nenhum usuário liberado.</p>';
+                }
             } catch (e) { console.error(e); }
         }
 
@@ -157,7 +213,6 @@
             document.getElementById('result-area').style.display = 'none';
 
             try {
-                // No Web App, chamamos nossa própria API do app_prod.py
                 const resp = await fetch('/api/gerar_pix_web', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -167,9 +222,11 @@
                 
                 if (data.success) {
                     document.getElementById('qr-text').innerText = data.qr_text;
+                    const qrUrl = `https://chart.googleapis.com/chart?chs=200x200&cht=qr&chl=${encodeURIComponent(data.qr_text)}`;
+                    document.getElementById('qr-image').src = qrUrl;
                     document.getElementById('result-area').style.display = 'block';
                 } else {
-                    tg.showAlert("Erro ao gerar PIX: " + data.message);
+                    tg.showAlert("Erro ao gerar PIX: " + (data.message || "Erro desconhecido"));
                 }
             } catch (e) {
                 tg.showAlert("Erro de conexão com o servidor.");
@@ -181,12 +238,14 @@
         function copyPix() {
             const text = document.getElementById('qr-text').innerText;
             navigator.clipboard.writeText(text);
-            tg.showScanQrPopup({ text: "PIX Copiado!" }); // Truque visual
+            tg.showScanQrPopup({ text: "PIX Copiado!" });
             setTimeout(() => tg.closeScanQrPopup(), 1000);
         }
 
         loadStats();
-        setInterval(loadStats, 5000); // Atualiza stats a cada 5 segundos
+        loadUsers();
+        setInterval(loadStats, 5000);
+        setInterval(loadUsers, 10000);
     </script>
 </body>
 </html>

@@ -120,6 +120,10 @@ async def get_dashboard():
 async def api_stats():
     return db_stats()
 
+@app.get("/api/users")
+async def api_users():
+    return {"users": bot_user_list()}
+
 @app.post("/api/gerar_pix_web")
 async def gerar_pix_web(req: PixReq):
     # Simula chamada interna do bot
