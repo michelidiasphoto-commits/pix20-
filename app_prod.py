@@ -280,14 +280,11 @@ async def webhook(request: Request):
 bot = telebot.TeleBot(CFG["telegram_token"])
 
 def get_main_keyboard():
-    markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    markup = types.ReplyKeyboardMarkup(row_width=1, resize_keyboard=True)
     # URL real do seu Render para o Mini App abrir corretamente
     web_app = types.WebAppInfo(url="https://pix20.onrender.com") 
     btn_web = types.KeyboardButton("🚀 Abrir Painel Web", web_app=web_app)
-    btn_stats = types.KeyboardButton("📊 Estatísticas")
-    btn_help = types.KeyboardButton("❓ Ajuda")
     markup.add(btn_web)
-    markup.add(btn_stats, btn_help)
     return markup
 
 @bot.message_handler(commands=['start', 'help'])
