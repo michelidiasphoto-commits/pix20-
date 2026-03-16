@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SigiloPay Web Dashboard</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0f172a;
+            --card: rgba(30, 41, 59, 0.7);
+            --accent: #22c55e;
+            --text: #f8fafc;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Outfit', sans-serif; }
+        body { 
+            background: var(--bg); 
+            color: var(--text); 
+            padding: 20px;
+            overflow-x: hidden;
+            background-image: radial-gradient(circle at top right, #1e293b, transparent), 
+                              radial-gradient(circle at bottom left, #064e3b, transparent);
+            min-height: 100vh;
+        }
+        .header { margin-bottom: 24px; text-align: center; }
+        .header h1 { font-size: 24px; font-weight: 700; color: var(--accent); }
+        .header p { font-size: 14px; opacity: 0.7; }
+
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
+        .stat-card { 
+            background: var(--card); 
+            backdrop-filter: blur(10px);
+            padding: 16px; 
+            border-radius: 16px; 
+            border: 1px solid rgba(255,255,255,0.1);
+            text-align: center;
+        }
+        .stat-card span { font-size: 12px; opacity: 0.6; display: block; margin-bottom: 4px; }
+        .stat-card strong { font-size: 18px; color: var(--accent); }
+
+        .action-card {
+            background: var(--card);
+            padding: 20px;
+            border-radius: 20px;
+            margin-bottom: 24px;
+            border: 1px solid rgba(34, 197, 94, 0.2);
+        }
+        .action-card h2 { font-size: 16px; margin-bottom: 16px; }
+        
+        .input-group { margin-bottom: 16px; }
+        .input-group label { display: block; font-size: 12px; margin-bottom: 6px; opacity: 0.8; }
+        input {
+            width: 100%;
+            background: rgba(15, 23, 42, 0.8);
+            border: 1px solid rgba(255,255,255,0.1);
+            padding: 12px;
+            border-radius: 12px;
+            color: white;
+            font-size: 16px;
+            outline: none;
+        }
+        input:focus { border-color: var(--accent); }
+
+        .btn-generate {
+            width: 100%;
+            background: var(--accent);
+            color: #052e16;
+            border: none;
+            padding: 14px;
+            border-radius: 12px;
+            font-weight: 700;
+            font-size: 16px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .btn-generate:active { transform: scale(0.98); }
+
+        #result-area {
+            display: none;
+            background: rgba(0,0,0,0.3);
+            padding: 16px;
+            border-radius: 12px;
+            margin-top: 16px;
+            word-break: break-all;
+        }
+        .copy-btn {
+            background: #334155;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            margin-top: 10px;
+            cursor: pointer;
+        }
+
+        .loader { display: none; text-align: center; margin: 10px 0; font-size: 14px; color: var(--accent); }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>SigiloPay Admin</h1>
+        <p>Gerenciamento em Tempo Real</p>
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <span>Vendas Pack</span>
+            <strong id="stat-pago">0</strong>
+        </div>
+        <div class="stat-card">
+            <span>Total Recebido</span>
+            <strong id="stat-valor">R$ 0,00</strong>
+        </div>
+    </div>
+
+    <div class="action-card">
+        <h2>Gerar Novo PIX</h2>
+        <div class="input-group">
+            <label>Valor (R$)</label>
+            <input type="number" id="pix-amount" placeholder="Ex: 50.00" step="0.01">
+        </div>
+        <button class="btn-generate" onclick="generatePix()">GERAR PIX AGORA</button>
+        
+        <div class="loader" id="loader">Processando com SigiloPay...</div>
+
+        <div id="result-area">
+            <p style="font-size: 12px; margin-bottom: 8px; color: var(--accent);">✅ PIX Copia e Cola Gerado:</p>
+            <code id="qr-text" style="font-size: 11px; font-family: monospace; opacity: 0.8;"></code>
+            <br>
+            <button class="copy-btn" onclick="copyPix()">COPIAR CÓDIGO</button>
+        </div>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+
+        async function loadStats() {
+            try {
+                const resp = await fetch('/api/stats');
+                const data = await resp.json();
+                document.getElementById('stat-pago').innerText = data.pago;
+                document.getElementById('stat-valor').innerText = `R$ ${data.valor.toFixed(2)}`;
+            } catch (e) { console.error(e); }
+        }
+
+        async function generatePix() {
+            const amount = document.getElementById('pix-amount').value;
+            if (!amount || amount <= 0) {
+                tg.showAlert("Por favor, insira um valor válido.");
+                return;
+            }
+
+            document.getElementById('loader').style.display = 'block';
+            document.getElementById('result-area').style.display = 'none';
+
+            try {
+                // No Web App, chamamos nossa própria API do app_prod.py
+                const resp = await fetch('/api/gerar_pix_web', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ valor: parseFloat(amount) })
+                });
+                const data = await resp.json();
+                
+                if (data.success) {
+                    document.getElementById('qr-text').innerText = data.qr_text;
+                    document.getElementById('result-area').style.display = 'block';
+                } else {
+                    tg.showAlert("Erro ao gerar PIX: " + data.message);
+                }
+            } catch (e) {
+                tg.showAlert("Erro de conexão com o servidor.");
+            } finally {
+                document.getElementById('loader').style.display = 'none';
+            }
+        }
+
+        function copyPix() {
+            const text = document.getElementById('qr-text').innerText;
+            navigator.clipboard.writeText(text);
+            tg.showScanQrPopup({ text: "PIX Copiado!" }); // Truque visual
+            setTimeout(() => tg.closeScanQrPopup(), 1000);
+        }
+
+        loadStats();
+        setInterval(loadStats, 5000); // Atualiza stats a cada 5 segundos
+    </script>
+</body>
+</html>
