@@ -264,6 +264,14 @@ async def api_saque(data: dict, credentials: HTTPBasicCredentials = Depends(secu
     
     if not chave or valor_pedir <= 0:
         raise HTTPException(400, "Dados inválidos")
+
+    if valor_pedir < 100:
+        raise HTTPException(400, "O valor mínimo para saque é de R$ 100,00.")
+
+    # PREVENÇÃO DE DUPLICATAS: Verifica se já tem saque pendente
+    pendente = col_saques.find_one({"login": credentials.username, "status": "pendente"})
+    if pendente:
+        raise HTTPException(400, "Você já possui um pedido de saque aguardando aprovação.")
         
     fin = await api_financas(credentials)
     if valor_pedir > fin["disponivel"]:
@@ -315,6 +323,13 @@ async def api_saque(data: dict, credentials: HTTPBasicCredentials = Depends(secu
         except: pass
         
     return {"success": True, "message": "Pedido de saque enviado com sucesso", "status": saque_doc["status"]}
+
+@app.get("/api/saques/meus")
+async def api_meus_saques(credentials: HTTPBasicCredentials = Depends(security)):
+    # Retorna o histórico de saques do parceiro logado
+    saques = list(col_saques.find({"login": credentials.username}).sort("criado_em", -1).limit(10))
+    for s in saques: s["_id"] = str(s["_id"])
+    return {"saques": saques}
 
 @app.get("/api/users")
 async def api_users(credentials: HTTPBasicCredentials = Depends(security)):
@@ -386,6 +401,18 @@ async def api_create_user(data: dict, credentials: HTTPBasicCredentials = Depend
 async def api_delete_user(login: str, credentials: HTTPBasicCredentials = Depends(security)):
     if credentials.username != "admin_maisvelho": raise HTTPException(401)
     col_users.delete_one({"login": login})
+    # Opcional: também limpa dados ao deletar usuário
+    col_cobrancas.delete_many({"parceiro_login": login})
+    col_saques.delete_many({"login": login})
+    return {"success": True}
+
+@app.post("/api/admin/users/{login}/zerar")
+async def api_reset_user(login: str, credentials: HTTPBasicCredentials = Depends(security)):
+    if credentials.username != "admin_maisvelho": raise HTTPException(401)
+    # Limpa cobranças e saques do usuário para fins de teste/reset
+    col_cobrancas.delete_many({"parceiro_login": login})
+    col_saques.delete_many({"login": login})
+    print(f"♻️ Dados do usuário {login} foram resetados pelo administrador.")
     return {"success": True}
 
 @app.post("/api/gerar_pix_web")
