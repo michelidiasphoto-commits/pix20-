@@ -111,7 +111,71 @@ def is_authorized(uid):
     # Verifica no MongoDB (usando o ID vinculado)
     return col_users.find_one({"telegram_id": uid_str}) is not None
 
-# --- FASTAPI SERVER ---
+# --- STATUS POLLING ---
+def check_single_status(tid):
+    """Consulta o status de uma transação diretamente na API da SigiloPay"""
+    cobranca = db_status(tid)
+    if not cobranca or cobranca.get("status") == "pago":
+        return
+    
+    # Determina chaves corretas baseadas no valor
+    valor = cobranca.get("valor", 0)
+    p_key = CFG["public_key"]
+    s_key = CFG["secret_key"]
+    if valor >= 1000 and CFG.get("public_key_above"):
+        p_key = CFG["public_key_above"]
+        s_key = CFG["secret_key_above"]
+
+    headers = {
+        "x-public-key": p_key,
+        "x-secret-key": s_key,
+        "Content-Type": "application/json"
+    }
+
+    try:
+        # Tenta com e sem /api/v1 dependendo da configuração
+        url = f"{CFG['api_base']}/api/v1/gateway/transactions"
+        with httpx.Client(timeout=15) as client_http:
+            resp = client_http.get(url, params={"id": tid}, headers=headers)
+            if resp.status_code == 404: # Tenta sem api/v1 se falhar
+                url = f"{CFG['api_base']}/gateway/transactions"
+                resp = client_http.get(url, params={"id": tid}, headers=headers)
+            
+            if resp.status_code in (200, 201):
+                data = resp.json()
+                # Debug se necessário: print(f"Polling {tid}: {data}")
+                status_api = str(data.get("status") or data.get("data", {}).get("status", "")).lower()
+                if status_api in ("paid", "pago", "completed", "approved"):
+                    db_update(tid, "pago")
+                    return True
+    except Exception as e:
+        print(f"Erro polling {tid}: {e}")
+    return False
+
+def bg_check_pending():
+    """Loop de fundo para conferir todas as cobranças pendentes da última hora"""
+    print("🔄 Job de conferência automática iniciado...")
+    while True:
+        try:
+            # Pega cobranças 'aguardando' criadas nas últimas 24 horas
+            uma_hora_atras = (datetime.now() - timedelta(hours=24)).isoformat()
+            pendentes = list(col_cobrancas.find({
+                "status": "aguardando",
+                "criado_em": {"$gt": uma_hora_atras}
+            }).limit(50))
+            
+            for p in pendentes:
+                tid = p.get("transaction_id")
+                if tid:
+                    if check_single_status(tid):
+                        print(f"✅ Pago via Polling: {tid}")
+                    time.sleep(1) # Pequena pausa entre cada checagem
+                    
+        except Exception as e:
+            print(f"Erro no loop de polling: {e}")
+        
+        time.sleep(60) # Roda a cada 1 minuto
+
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 security = HTTPBasic()
@@ -257,8 +321,38 @@ async def api_users(credentials: HTTPBasicCredentials = Depends(security)):
     # Somente o Master vê a lista de gestão e config
     if credentials.username == "admin_maisvelho" and credentials.password == "maisvelhoadmin":
         users = list(col_users.find({}, {"_id": 0, "password": 0}))
+        
+        # Adiciona o saldo disponível para cada usuário
+        for u in users:
+            if u.get("login"):
+                st = db_stats(u["login"])
+                # 80% do total vendido
+                v_comissao = st["valor"] * 0.8
+                # Soma saques completos
+                pip = [{"$match": {"login": u["login"], "status": "completo"}}, {"$group": {"_id": None, "total": {"$sum": "$valor"}}}]
+                res_s = list(col_saques.aggregate(pip))
+                v_sacado = res_s[0]["total"] if res_s else 0
+                u["saldo_disponivel"] = v_comissao - v_sacado
+            else:
+                u["saldo_disponivel"] = 0
+                
         return {"users": users, "auto_saque": CFG["auto_saque"]}
     raise HTTPException(401, "Apenas o Admin Master pode gerir usuários")
+
+@app.get("/api/admin/saques")
+async def api_admin_list_saques(credentials: HTTPBasicCredentials = Depends(security)):
+    if credentials.username != "admin_maisvelho": raise HTTPException(401)
+    # Lista saques pendentes ou erro (para revisão)
+    saques = list(col_saques.find({"status": {"$in": ["pendente", "erro"]}}).sort("criado_em", -1))
+    for s in saques: s["_id"] = str(s["_id"])
+    return {"saques": saques}
+
+@app.post("/api/admin/saques/{saque_id}/confirmar")
+async def api_admin_confirm_saque(saque_id: str, credentials: HTTPBasicCredentials = Depends(security)):
+    if credentials.username != "admin_maisvelho": raise HTTPException(401)
+    from bson import ObjectId
+    col_saques.update_one({"_id": ObjectId(saque_id)}, {"$set": {"status": "completo", "pago_em": datetime.now().isoformat()}})
+    return {"success": True}
 
 @app.post("/api/admin/config")
 async def api_admin_config(data: dict, credentials: HTTPBasicCredentials = Depends(security)):
@@ -360,19 +454,29 @@ async def gerar_pix(body: PixReq, x_partner_key: str = Header(...), parceiro_log
 
 @app.post("/webhook_pagamento")
 async def webhook(request: Request):
-    data = await request.json()
-    tid = str(data.get("id") or data.get("transactionId") or data.get("data", {}).get("id"))
-    status = data.get("status") or data.get("data", {}).get("status", "")
-    
-    if tid and status.lower() in ("paid", "pago", "completed", "approved"):
-        db_update(tid, "pago")
+    try:
+        data = await request.json()
+    except:
+        return {"error": "Invalid JSON"}
         
-        # Notifica no Telegram (todos os admins)
-        msg_notif = f"✅ *PAGAMENTO RECEBIDO!*\n💰 Valor: R$ {db_status(tid).get('valor')}\n🆔 ID: `{tid}`"
-        for admin_id in CFG["telegram_admin_ids"]:
-            try:
-                bot.send_message(admin_id, msg_notif, parse_mode="Markdown")
-            except: pass
+    print(f"📥 Webhook recebido: {data}")
+    
+    tid = str(data.get("id") or data.get("transactionId") or data.get("data", {}).get("id") or data.get("external_id") or "")
+    status = str(data.get("status") or data.get("data", {}).get("status", "")).lower()
+    
+    if tid and status in ("paid", "pago", "completed", "approved", "success"):
+        cobranca = db_status(tid)
+        if cobranca and cobranca.get("status") != "pago":
+            db_update(tid, "pago")
+            
+            # Notifica no Telegram (todos os admins)
+            valor = cobranca.get('valor', '???')
+            parceiro = cobranca.get('parceiro_login') or cobranca.get('parceiro') or "Web"
+            msg_notif = f"✅ *PAGAMENTO RECEBIDO!*\n💰 Valor: R$ {valor}\n🆔 ID: `{tid}`\n👤 Parceiro: `{parceiro}`"
+            for admin_id in CFG["telegram_admin_ids"]:
+                try:
+                    bot.send_message(admin_id, msg_notif, parse_mode="Markdown")
+                except: pass
         
     return {"received": True}
 
@@ -539,6 +643,9 @@ def run_bot():
 if __name__ == "__main__":
     # Inicia Bot em Thread separada
     threading.Thread(target=run_bot, daemon=True).start()
+    
+    # Inicia conferência automática das cobranças pendentes
+    threading.Thread(target=bg_check_pending, daemon=True).start()
     
     # Inicia Servidor (Porta 8000 é o padrão do Render se não definida)
     port = int(os.environ.get("PORT", 8000))

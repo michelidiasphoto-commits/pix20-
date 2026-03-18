@@ -250,6 +250,14 @@
             </div>
         </div>
 
+        <!-- SEÇÃO DE PEDIDOS DE SAQUE (SOMENTE ADMIN MASTER) -->
+        <div id="master-saques-section" style="display: none;" class="action-card">
+            <h2>💸 Pedidos de Saque Pendentes</h2>
+            <div id="master-saques-container" class="user-list">
+                <p style="font-size: 12px; opacity: 0.5;">Nenhum pedido pendente.</p>
+            </div>
+        </div>
+
         <!-- BOTÃO DESCONECTAR NO RODAPÉ -->
         <div style="margin-top: 20px; text-align: center; padding-bottom: 40px;">
             <button onclick="logout()" style="background: rgba(239, 68, 68, 0.1); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 12px 24px; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; width: 100%;">🚪 DESCONECTAR CONTA</button>
@@ -337,8 +345,11 @@
             
             if (USER_ROLE === 'master') {
                 document.getElementById('user-management-section').style.display = 'block';
+                document.getElementById('master-saques-section').style.display = 'block';
                 document.getElementById('financeiro-section').style.display = 'none';
                 loadUsers();
+                loadMasterSaques();
+                setInterval(loadMasterSaques, 15000);
             } else {
                 document.getElementById('user-management-section').style.display = 'none';
                 document.getElementById('financeiro-section').style.display = 'block';
@@ -425,9 +436,10 @@
                             <div class="user-item">
                                 <div style="display: flex; flex-direction: column;">
                                     <span style="font-weight: 600;">${u.login}</span>
-                                    <span style="font-size: 11px; opacity: 0.6;">${expMsg}</span>
+                                    <span style="font-size: 11px; color: var(--accent);">Disponível: R$ ${u.saldo_disponivel ? u.saldo_disponivel.toFixed(2) : "0.00"}</span>
+                                    <span style="font-size: 10px; opacity: 0.5;">${expMsg}</span>
                                 </div>
-                                <button onclick="deleteUser('${u.login}')" style="background: #ef4444; color: white; border: none; padding: 5px 10px; border-radius: 6px; font-size: 11px; cursor: pointer;">Excluir</button>
+                                <button onclick="deleteUser('${u.login}')" style="background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid #ef4444; padding: 5px 12px; border-radius: 8px; font-size: 11px; cursor: pointer;">Excluir</button>
                             </div>
                         `;
                     }).join('');
@@ -435,6 +447,48 @@
                     container.innerHTML = '<p style="font-size: 12px; opacity: 0.5;">Nenhum usuário liberado.</p>';
                 }
             } catch (e) { console.error(e); }
+        }
+
+        async function loadMasterSaques() {
+            try {
+                const resp = await fetch('/api/admin/saques', { headers: { 'Authorization': AUTH_HEADER } });
+                const data = await resp.json();
+                const container = document.getElementById('master-saques-container');
+                
+                if (data.saques && data.saques.length > 0) {
+                    container.innerHTML = data.saques.map(s => `
+                        <div class="user-item" style="flex-direction: column; align-items: flex-start; gap: 10px; border: 1px solid rgba(255,255,255,0.05);">
+                            <div style="width: 100%; display: flex; justify-content: space-between;">
+                                <strong style="color: #60a5fa;">👤 ${s.login}</strong>
+                                <strong style="color: var(--accent);">R$ ${s.valor.toFixed(2)}</strong>
+                            </div>
+                            <div style="font-size: 12px; opacity: 0.8; width: 100%;">
+                                <p>🔑 Chave: <code style="background: #000; padding: 2px 4px;">${s.pix_key}</code></p>
+                                <p style="font-size: 10px; opacity: 0.5; margin-top: 4px;">📅 Em: ${new Date(s.criado_em).toLocaleString()}</p>
+                            </div>
+                            ${s.status === 'erro' ? `<p style="color: #f87171; font-size: 10px;">⚠️ Erro: ${s.erro_api}</p>` : ''}
+                            <button onclick="confirmSaque('${s._id}', '${s.login}', ${s.valor})" style="width: 100%; background: #a855f7; color: white; border: none; padding: 8px; border-radius: 8px; font-weight: 600; cursor: pointer;">EFETUEI O PAGAMENTO</button>
+                        </div>
+                    `).join('');
+                } else {
+                    container.innerHTML = '<p style="font-size: 12px; opacity: 0.5;">Nenhum pedido pendente.</p>';
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        async function confirmSaque(id, login, valor) {
+            if (!confirm(`Confirmar que você já enviou R$ ${valor.toFixed(2)} para ${login}?`)) return;
+            try {
+                const resp = await fetch(`/api/admin/saques/${id}/confirmar`, {
+                    method: 'POST',
+                    headers: { 'Authorization': AUTH_HEADER }
+                });
+                if (resp.ok) {
+                    tg.showAlert("✅ Saque marcado como completo!");
+                    loadMasterSaques();
+                    loadUsers();
+                }
+            } catch (e) { tg.showAlert("Erro ao confirmar saque."); }
         }
 
         async function toggleAutoSaque() {
