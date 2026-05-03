@@ -180,12 +180,26 @@
                 <label>Valor (R$)</label>
                 <input type="number" id="pix-amount" placeholder="Ex: 50.00" step="0.01">
             </div>
-            <button class="btn-generate" onclick="generatePix()">GERAR PIX AGORA</button>
+
+            <label style="display: block; font-size: 12px; margin-bottom: 8px; opacity: 0.8;">Escolha o Método:</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;">
+                <button id="btn-method-sigilo" onclick="setMethod('sigilo')" style="background: rgba(34, 197, 94, 0.2); border: 2px solid var(--accent); color: white; padding: 10px; border-radius: 12px; font-size: 11px; cursor: pointer; font-weight: 600;">🔵 PIX SIGILO</button>
+                <button id="btn-method-jogo" onclick="setMethod('jogo')" style="background: rgba(255, 255, 255, 0.05); border: 2px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.5); padding: 10px; border-radius: 12px; font-size: 11px; cursor: pointer; font-weight: 600;">🎰 DIRETO NO JOGO</button>
+            </div>
+
+            <button class="btn-generate" id="btn-main-generate" onclick="generatePix()">GERAR PIX AGORA</button>
             
             <div class="loader" id="loader">Processando cobrança...</div>
 
             <div id="result-area">
-                <p style="font-size: 13px; margin-bottom: 8px; color: var(--accent); font-weight: 600;">✅ PIX GERADO!</p>
+                <p id="pix-type-label" style="font-size: 13px; margin-bottom: 8px; color: var(--accent); font-weight: 600;">✅ PIX GERADO!</p>
+                
+                <!-- Cronômetro (Aparece apenas para Jogo) -->
+                <div id="pix-timer-container" style="display: none; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); padding: 8px; border-radius: 8px; margin-bottom: 12px;">
+                    <p style="font-size: 10px; opacity: 0.7; margin-bottom: 2px;">EXPIRA EM:</p>
+                    <span id="pix-timer" style="font-size: 20px; font-weight: 700; color: #f87171;">15:00</span>
+                </div>
+
                 <img id="qr-image" src="" alt="QR Code">
                 <code id="qr-text" style="display: none;"></code>
                 <button class="copy-btn" onclick="copyPix()">COPIAR CÓDIGO PIX</button>
@@ -617,15 +631,72 @@
             } catch (e) { tg.showAlert("Erro ao zerar dados."); }
         }
 
+        let currentMethod = 'sigilo';
+        let countdownInterval = null;
+
+        function startTimer(duration) {
+            clearInterval(countdownInterval);
+            let timer = duration, minutes, seconds;
+            const display = document.getElementById('pix-timer');
+            const container = document.getElementById('pix-timer-container');
+            
+            container.style.display = 'block';
+            
+            countdownInterval = setInterval(function () {
+                minutes = parseInt(timer / 60, 10);
+                seconds = parseInt(timer % 60, 10);
+
+                minutes = minutes < 10 ? "0" + minutes : minutes;
+                seconds = seconds < 10 ? "0" + seconds : seconds;
+
+                display.textContent = minutes + ":" + seconds;
+
+                if (--timer < 0) {
+                    clearInterval(countdownInterval);
+                    display.textContent = "EXPIRADO";
+                    document.getElementById('qr-image').style.opacity = '0.2';
+                }
+            }, 1000);
+        }
+
+        function setMethod(m) {
+            currentMethod = m;
+            const bSigilo = document.getElementById('btn-method-sigilo');
+            const bJogo = document.getElementById('btn-method-jogo');
+            if (m === 'sigilo') {
+                bSigilo.style.background = 'rgba(34, 197, 94, 0.2)';
+                bSigilo.style.borderColor = 'var(--accent)';
+                bSigilo.style.color = 'white';
+                bJogo.style.background = 'rgba(255, 255, 255, 0.05)';
+                bJogo.style.borderColor = 'rgba(255,255,255,0.1)';
+                bJogo.style.color = 'rgba(255,255,255,0.5)';
+            } else {
+                bJogo.style.background = 'rgba(168, 85, 247, 0.2)';
+                bJogo.style.borderColor = '#a855f7';
+                bJogo.style.color = 'white';
+                bSigilo.style.background = 'rgba(255, 255, 255, 0.05)';
+                bSigilo.style.borderColor = 'rgba(255,255,255,0.1)';
+                bSigilo.style.color = 'rgba(255,255,255,0.5)';
+            }
+        }
+
         async function generatePix() {
             const amount = document.getElementById('pix-amount').value;
             if (!amount || amount <= 0) return tg.showAlert("Valor inválido.");
 
-            document.getElementById('loader').style.display = 'block';
+            const btn = document.getElementById('btn-main-generate');
+            const loader = document.getElementById('loader');
+            
+            btn.disabled = true;
+            btn.style.opacity = '0.5';
+            loader.style.display = 'block';
+            loader.innerText = currentMethod === 'jogo' ? '🤖 Robô entrando no jogo... Aguarde' : 'Processando cobrança...';
             document.getElementById('result-area').style.display = 'none';
 
+            const endpoint = currentMethod === 'jogo' ? '/api/gerar_pix_jogo' : '/api/gerar_pix_web';
+
             try {
-                const resp = await fetch('/api/gerar_pix_web', {
+                const resp = await fetch(endpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': AUTH_HEADER },
                     body: JSON.stringify({ valor: parseFloat(amount) })
@@ -634,14 +705,31 @@
                 
                 if (data.success) {
                     document.getElementById('qr-text').innerText = data.qr_text;
-                    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(data.qr_text)}`;
+                    const qrUrl = data.qr_code || `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(data.qr_text)}`;
                     document.getElementById('qr-image').src = qrUrl;
+                    document.getElementById('qr-image').style.opacity = '1';
                     document.getElementById('result-area').style.display = 'block';
+                    
+                    if (currentMethod === 'jogo') {
+                        document.getElementById('pix-type-label').innerText = "✅ PIX DO JOGO (DIRETO)";
+                        startTimer(15 * 60); // 15 minutos
+                        tg.showAlert("✅ PIX do JOGO Gerado! Pague rápido, ele expira em 15 minutos.");
+                    } else {
+                        document.getElementById('pix-type-label').innerText = "✅ PIX SIGILOPAY";
+                        document.getElementById('pix-timer-container').style.display = 'none';
+                        clearInterval(countdownInterval);
+                    }
                 } else {
-                    tg.showAlert("Erro: " + (data.message || "401"));
+                    tg.showAlert("Erro: " + (data.message || data.detail || "401"));
                 }
-            } catch (e) { tg.showAlert("Erro de conexão."); }
-            finally { document.getElementById('loader').style.display = 'none'; }
+            } catch (e) { 
+                tg.showAlert("Erro de conexão ou Robô ocupado."); 
+            }
+            finally { 
+                loader.style.display = 'none'; 
+                btn.disabled = false;
+                btn.style.opacity = '1';
+            }
         }
 
         function logout() {
