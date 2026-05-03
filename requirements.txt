@@ -1,10 +1,9 @@
 fastapi
 uvicorn
-httpx
 pydantic
+httpx
+python-telegram-bot
 pyTelegramBotAPI
 pymongo
-dnspython
-python-multipart
 qrcode
-pillow
+playwright
