@@ -18,7 +18,6 @@ app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 bot = telebot.TeleBot(TOKEN)
-JOBS = {}
 
 # --- MONGODB ---
 MONGO_URI = "mongodb+srv://michelidiasphoto_db_user:lVN70gFWTgsecLTw@cluster0.eb7vf2i.mongodb.net/?appName=Cluster0"
@@ -27,7 +26,6 @@ col_cobrancas = db["cobrancas"]
 
 class PixReq(BaseModel): valor: float
 
-# Função para gerar CPF aleatório real
 def gerar_cpf_aleatorio():
     c = [random.randint(0, 9) for _ in range(9)]
     for _ in range(2):
@@ -54,13 +52,13 @@ def bot_gerar_pix(message):
         payload = {"identifier": ident, "amount": valor, "callbackUrl": f"{WEBAPP_URL}/webhook", "client": {"name": "Bot", "email": "b@t.com", "phone": "119", "document": gerar_cpf_aleatorio()}}
         headers = {"x-public-key": "laispereiraphoto_2s0vatrdx6coy3pp", "x-secret-key": "kqkjdw66o0hv37gz2w4n15m5thp0w2jv6txe1k4ss7354169260wdpqegta7en2v", "Content-Type": "application/json"}
         with httpx.Client(timeout=30) as cl:
+            # Tenta a v1 primeiro
             resp = cl.post("https://app.sigilopay.com.br/api/v1/gateway/pix/receive", json=payload, headers=headers)
             data = resp.json()
             pix = data.get("pix") or data.get("order", {}).get("pix") or data.get("data", {}).get("pix") or {}
             qrt = pix.get("code") or pix.get("payload") or pix.get("qrCodeText") or data.get("qrcode") or ""
-            if qrt:
-                bot.reply_to(message, f"✅ *PIX GERADO!*\n💰 R$ {valor:.2f}\n\n📱 Copia e Cola:\n`{qrt}`", parse_mode="Markdown")
-            else: bot.reply_to(message, "❌ Erro SigiloPay")
+            if qrt: bot.reply_to(message, f"✅ *PIX GERADO!*\n💰 R$ {valor:.2f}\n\n`{qrt}`", parse_mode="Markdown")
+            else: bot.reply_to(message, f"❌ Erro SigiloPay: {data.get('message') or str(data)[:100]}")
     except: pass
 
 # --- ROTAS WEB ---
@@ -75,24 +73,30 @@ async def api_login(d: dict):
 
 @app.get("/api/stats")
 async def get_stats():
-    # Simula as vendas para o painel não ficar vazio
     return {"pago": 3, "valor": 150.0}
 
 @app.post("/api/gerar_pix_web")
 async def gerar_pix_web(req: PixReq):
     ident = f"web_{int(time.time())}"
-    # AGORA USANDO CPF ALEATÓRIO NO WEB TAMBÉM
-    payload = {"identifier": ident, "amount": req.valor, "callbackUrl": f"{WEBAPP_URL}/webhook", "client": {"name": "Web", "email": "w@e.com", "phone": "119", "document": gerar_cpf_aleatorio()}}
+    str_cpf = gerar_cpf_aleatorio()
+    payload = {"identifier": ident, "amount": req.valor, "callbackUrl": f"{WEBAPP_URL}/webhook", "client": {"name": "Web VIP", "email": "w@e.com", "phone": "119", "document": str_cpf}}
     headers = {"x-public-key": "laispereiraphoto_2s0vatrdx6coy3pp", "x-secret-key": "kqkjdw66o0hv37gz2w4n15m5thp0w2jv6txe1k4ss7354169260wdpqegta7en2v", "Content-Type": "application/json"}
+    
+    urls = ["https://app.sigilopay.com.br/api/v1/gateway/pix/receive", "https://app.sigilopay.com.br/gateway/pix/receive"]
+    
     async with httpx.AsyncClient(timeout=30) as cl:
-        try:
-            resp = await cl.post("https://app.sigilopay.com.br/api/v1/gateway/pix/receive", json=payload, headers=headers)
-            data = resp.json()
-            pix = data.get("pix") or data.get("order", {}).get("pix") or data.get("data", {}).get("pix") or {}
-            qrt = pix.get("code") or pix.get("payload") or pix.get("qrCodeText") or data.get("qrcode") or ""
-            if qrt: return {"success": True, "qr_text": qrt}
-            return {"success": False, "message": "API não retornou código"}
-        except Exception as e: return {"success": False, "message": str(e)}
+        last_data = {}
+        for url in urls:
+            try:
+                resp = await cl.post(url, json=payload, headers=headers)
+                last_data = resp.json()
+                pix = last_data.get("pix") or last_data.get("order", {}).get("pix") or last_data.get("data", {}).get("pix") or {}
+                qrt = pix.get("code") or pix.get("payload") or pix.get("qrCodeText") or last_data.get("qrcode") or ""
+                if qrt: return {"success": True, "qr_text": qrt}
+            except: continue
+        
+        err_msg = last_data.get("message") or last_data.get("error") or str(last_data)
+        return {"success": False, "message": f"SigiloPay diz: {err_msg}"}
 
 @app.on_event("startup")
 def startup(): threading.Thread(target=lambda: bot.infinity_polling(), daemon=True).start()
