@@ -36,44 +36,31 @@ def gerar_cpf_aleatorio():
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     if str(message.from_user.id) != ADMIN_ID: return
-    text = (
-        "✅ *SISTEMA VIP PIX 20% ATIVADO!*\n\n"
-        "💰 `/pix 50` - Gerar PIX SigiloPay\n"
-        "📊 `/stats` - Ver vendas pagas\n"
-        "📜 `/historico` - Ver últimas vendas"
-    )
+    text = "✅ *SISTEMA VIP PIX 20% ATIVADO!*\n\n💰 `/pix 50` - Gerar PIX\n📊 `/stats` - Vendas"
     bot.send_message(message.chat.id, text, parse_mode="Markdown")
 
 @bot.message_handler(commands=['pix'])
 def bot_gerar_pix(message):
     if str(message.from_user.id) != ADMIN_ID: return
     try:
-        args = message.text.split()
-        valor = float(args[1]) if len(args) > 1 else 50.0
+        args = message.text.split(); valor = float(args[1]) if len(args) > 1 else 50.0
         ident = f"bot_{int(time.time())}"
         payload = {"identifier": ident, "amount": valor, "callbackUrl": "https://pix20.onrender.com/webhook_pagamento", "client": {"name": "Bot", "email": "b@t.com", "phone": "119", "document": gerar_cpf_aleatorio()}}
         headers = {"x-public-key": "laispereiraphoto_2s0vatrdx6coy3pp", "x-secret-key": "kqkjdw66o0hv37gz2w4n15m5thp0w2jv6txe1k4ss7354169260wdpqegta7en2v", "Content-Type": "application/json"}
         with httpx.Client(timeout=30) as cl:
             resp = cl.post("https://app.sigilopay.com.br/api/v1/gateway/pix/receive", json=payload, headers=headers)
-            data = resp.json()
-            pix = data.get("pix") or data.get("order", {}).get("pix") or {}
-            qrt = pix.get("code") or pix.get("payload") or ""
-            if qrt:
-                col_cobrancas.insert_one({"transaction_id": ident, "valor": valor, "status": "aguardando", "criado_em": datetime.now()})
-                bot.reply_to(message, f"✅ *PIX GERADO!*\n💰 R$ {valor:.2f}\n\n📱 Copia e Cola:\n`{qrt}`", parse_mode="Markdown")
-            else: bot.reply_to(message, "❌ Erro SigiloPay")
-    except: bot.reply_to(message, "Use: `/pix 50`")
-
-@bot.message_handler(commands=['stats'])
-def bot_stats(message):
-    if str(message.from_user.id) != ADMIN_ID: return
-    pago = col_cobrancas.count_documents({"status": "pago"})
-    bot.reply_to(message, f"📊 *Estatísticas:* \n✅ Pagos: {pago}\n💰 Total: R$ {pago*50:.2f}", parse_mode="Markdown")
+            data = resp.json(); pix = data.get("pix") or data.get("order", {}).get("pix") or {}; qrt = pix.get("code") or pix.get("payload") or ""
+            if qrt: bot.reply_to(message, f"✅ *PIX GERADO!*\n💰 R$ {valor:.2f}\n\n`{qrt}`", parse_mode="Markdown")
+    except: pass
 
 # --- ROTAS WEB ---
 @app.get("/", response_class=HTMLResponse)
 async def get_dashboard():
-    with open("dashboard.html", "r", encoding="utf-8") as f: return f.read()
+    # Caminho absoluto para garantir que o Render encontre o arquivo
+    path = os.path.join(os.getcwd(), "dashboard.html")
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f: return f.read()
+    return "<h1>Erro: Arquivo dashboard.html nao encontrado no servidor!</h1>"
 
 @app.post("/api/login")
 async def api_login(d: dict):
@@ -93,9 +80,7 @@ async def gerar_pix_web(req: PixReq):
     headers = {"x-public-key": "laispereiraphoto_2s0vatrdx6coy3pp", "x-secret-key": "kqkjdw66o0hv37gz2w4n15m5thp0w2jv6txe1k4ss7354169260wdpqegta7en2v", "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=30) as cl:
         resp = await cl.post("https://app.sigilopay.com.br/api/v1/gateway/pix/receive", json=payload, headers=headers)
-        data = resp.json()
-        pix = data.get("pix") or data.get("order", {}).get("pix") or {}
-        qrt = pix.get("code") or pix.get("payload") or ""
+        data = resp.json(); pix = data.get("pix") or data.get("order", {}).get("pix") or {}; qrt = pix.get("code") or pix.get("payload") or ""
         return {"success": True, "qr_text": qrt}
 
 @app.post("/api/gerar_pix_jogo")
@@ -114,12 +99,10 @@ async def run_bot_task(job_id, valor):
     except Exception as e: JOBS[job_id] = {"status": "erro", "message": str(e)}
 
 @app.get("/api/status_jogo/{job_id}")
-async def status_jogo(job_id: str):
-    return JOBS.get(job_id, {"status": "erro", "message": "Não encontrado"})
+async def status_jogo(job_id: str): return JOBS.get(job_id, {"status": "erro"})
 
 @app.on_event("startup")
-def startup():
-    threading.Thread(target=lambda: bot.infinity_polling(), daemon=True).start()
+def startup(): threading.Thread(target=lambda: bot.infinity_polling(), daemon=True).start()
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
