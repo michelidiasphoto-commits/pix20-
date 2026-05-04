@@ -1,60 +1,45 @@
-import os, json, time, httpx, threading, random, secrets, telebot
-from datetime import datetime
-from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+import os, json, time, httpx, threading, telebot
+from fastapi import FastAPI
 import uvicorn
-from pymongo import MongoClient
-from fastapi.responses import HTMLResponse
 
-# --- CONFIGURAÇÕES ---
 TOKEN = "8618759737:AAH8JRKP_7Xm_nPXMiSxelKsPLbJMaRwM-M"
-# Removi a trava de ADMIN_ID temporariamente para teste
-
-app = FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-
 bot = telebot.TeleBot(TOKEN)
+app = FastAPI()
 
-# --- BOT DE TELEGRAM (COMANDO START LIBERADO) ---
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    # Agora ele vai responder para TODO MUNDO só para testarmos
-    print(f"📩 Recebido /start de {message.from_user.id}")
-    text = "🚀 *SIGILOPAY ATIVO!*\\n\\nO bot está rodando com sucesso no Render.\\n\\nEnvie `/pix 10` para testar a geração."
-    bot.send_message(message.chat.id, text, parse_mode="Markdown")
-
-@bot.message_handler(commands=['pix'])
-def bot_gerar_pix(message):
+def check_token():
     try:
-        valor = float(message.text.split()[1])
-        bot.reply_to(message, f"⏳ Gerando PIX de R$ {valor:.2f}...")
-        # (A lógica de geração continua aqui igual ao anterior)
-    except:
-        bot.reply_to(message, "Use: `/pix 10`")
+        me = bot.get_me()
+        print(f"✅ BOT CONECTADO: @{me.username}")
+        return True
+    except Exception as e:
+        print(f"❌ ERRO DE TOKEN: O Token pode estar inválido ou expirado. Erro: {e}")
+        return False
 
-def run_bot_forever():
-    while True:
-        try:
-            print("🤖 Iniciando Polling do Bot...")
-            bot.infinity_polling(timeout=60, long_polling_timeout=60)
-        except Exception as e:
-            print(f"❌ Bot caiu, reiniciando em 5s... Erro: {e}")
-            time.sleep(5)
+@bot.message_handler(func=lambda m: True)
+def reply_all(message):
+    print(f"💬 Mensagem recebida: {message.text}")
+    bot.reply_to(message, "ESTOU VIVO! O bot está funcionando.")
 
-# --- INICIALIZAÇÃO ---
+def run_bot():
+    if check_token():
+        bot.infinity_polling()
+
 @app.on_event("startup")
-def startup_event():
-    # Isso garante que o bot ligue ASSIM que o servidor web estiver pronto
-    threading.Thread(target=run_bot_forever, daemon=True).start()
+def startup():
+    threading.Thread(target=run_bot, daemon=True).start()
 
-@app.get("/", response_class=HTMLResponse)
-async def get_dashboard():
-    with open("dashboard.html", "r", encoding="utf-8") as f: return f.read()
+@app.get("/bot_status")
+def bot_status():
+    try:
+        me = bot.get_me()
+        return {"status": "online", "bot_username": me.username}
+    except Exception as e:
+        return {"status": "offline", "error": str(e)}
 
-# ... (Mantenha o resto das rotas de stats, login e pix_web iguais)
+@app.get("/")
+def home():
+    return {"message": "Servidor Online. Acesse /bot_status para ver o bot."}
 
 if __name__ == "__main__":
-    # Garante que a porta seja lida corretamente do Render
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
