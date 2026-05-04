@@ -18,6 +18,7 @@ app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 bot = telebot.TeleBot(TOKEN)
+JOBS = {}
 
 # --- MONGODB ---
 MONGO_URI = "mongodb+srv://michelidiasphoto_db_user:lVN70gFWTgsecLTw@cluster0.eb7vf2i.mongodb.net/?appName=Cluster0"
@@ -27,7 +28,15 @@ col_users = db["users"]
 
 class PixReq(BaseModel): valor: float
 
-# --- LOGIN SEGURO (NOME ATUALIZADO) ---
+# FUNÇÃO GERADORA DE CPF REAL (Obrigatório para SigiloPay)
+def gerar_cpf_real():
+    c = [random.randint(0, 9) for _ in range(9)]
+    for _ in range(2):
+        v = sum([(len(c) + 1 - i) * val for i, val in enumerate(c)]) % 11
+        c.append(11 - v if v > 1 else 0)
+    return "".join(map(str, c))
+
+# --- LOGIN ---
 @app.post("/api/login")
 async def api_login(d: dict):
     u = d.get("username")
@@ -59,19 +68,22 @@ def bot_gerar_pix(message):
     try:
         valor = float(message.text.split()[1])
         ident = f"bot_{int(time.time())}"
-        str_cpf = "".join([str(random.randint(0,9)) for _ in range(11)])
-        c_data = {"name": "Bot", "email": "b@t.com", "phone": "11999999999", "document": str_cpf}
+        str_cpf = gerar_cpf_real()
+        c_data = {"name": "Bot User", "email": "b@t.com", "phone": "11999999999", "document": str_cpf}
         payload = {"identifier": ident, "amount": valor, "callbackUrl": f"{WEBAPP_URL}/webhook", "client": c_data, "customer": c_data}
         headers = {"x-public-key": "laispereiraphoto_2s0vatrdx6coy3pp", "x-secret-key": "kqkjdw66o0hv37gz2w4n15m5thp0w2jv6txe1k4ss7354169260wdpqegta7en2v", "Content-Type": "application/json"}
         with httpx.Client(timeout=30) as cl:
             resp = cl.post("https://app.sigilopay.com.br/api/v1/gateway/pix/receive", json=payload, headers=headers)
-            pix = resp.json().get("pix") or {}
+            data = resp.json()
+            pix = data.get("pix") or data.get("order", {}).get("pix") or {}
             qrt = pix.get("code") or pix.get("payload") or ""
             if qrt:
                 col_cobrancas.insert_one({"transaction_id": ident, "valor": valor, "status": "aguardando", "criado_em": datetime.now()})
                 bot.reply_to(message, f"✅ *PIX GERADO!*\n💰 R$ {valor:.2f}\n\n`{qrt}`", parse_mode="Markdown")
+            else: bot.reply_to(message, f"❌ Erro SigiloPay: {data.get('message') or str(data)[:100]}")
     except: pass
 
+# --- WEBHOOK ---
 @app.post("/webhook")
 async def webhook_sigilopay(request: Request):
     try:
@@ -83,6 +95,7 @@ async def webhook_sigilopay(request: Request):
         return {"success": True}
     except: return {"success": False}
 
+# --- ROTAS WEB ---
 @app.get("/", response_class=HTMLResponse)
 async def get_dashboard():
     with open("dashboard.html", "r", encoding="utf-8") as f: return f.read()
@@ -96,20 +109,21 @@ async def get_stats():
 @app.post("/api/gerar_pix_web")
 async def gerar_pix_web(req: PixReq):
     ident = f"web_{int(time.time())}"
-    str_cpf = "".join([str(random.randint(0,9)) for _ in range(11)])
+    str_cpf = gerar_cpf_real()
     c_data = {"name": "Web VIP", "email": "w@e.com", "phone": "11999999999", "document": str_cpf}
     payload = {"identifier": ident, "amount": round(req.valor, 2), "callbackUrl": f"{WEBAPP_URL}/webhook", "client": c_data, "customer": c_data}
     headers = {"x-public-key": "laispereiraphoto_2s0vatrdx6coy3pp", "x-secret-key": "kqkjdw66o0hv37gz2w4n15m5thp0w2jv6txe1k4ss7354169260wdpqegta7en2v", "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=30) as cl:
         try:
             resp = await cl.post("https://app.sigilopay.com.br/api/v1/gateway/pix/receive", json=payload, headers=headers)
-            pix = resp.json().get("pix") or {}
+            data = resp.json()
+            pix = data.get("pix") or data.get("order", {}).get("pix") or {}
             qrt = pix.get("code") or pix.get("payload") or ""
             if qrt:
                 col_cobrancas.insert_one({"transaction_id": ident, "valor": req.valor, "status": "aguardando", "criado_em": datetime.now()})
                 return {"success": True, "qr_text": qrt}
-            return {"success": False}
-        except: return {"success": False}
+            return {"success": False, "message": data.get("message")}
+        except Exception as e: return {"success": False, "message": str(e)}
 
 @app.on_event("startup")
 def startup(): threading.Thread(target=lambda: bot.infinity_polling(), daemon=True).start()
