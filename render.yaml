@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: pix20-docker
+    env: docker
+    plan: free
+    region: ohio
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: MONGO_URI
+        value: mongodb+srv://michelidiasphoto_db_user:lVN70gFWTgsecLTw@cluster0.eb7vf2i.mongodb.net/?appName=Cluster0
