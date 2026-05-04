@@ -130,6 +130,7 @@
     </style>
 </head>
 <body>
+    <!-- TELA DE LOGIN -->
     <div id="login-screen">
         <div class="action-card" style="width: 300px;">
             <h2 style="justify-content: center;">🔐 Acesso Restrito</h2>
@@ -138,20 +139,14 @@
                 <input type="text" id="user-login" placeholder="Digite seu usuário">
             </div>
             <div class="input-group">
-            <label>Sua Senha</label>
-            <div style="position: relative;">
-                <input type="password" id="pass-login" placeholder="Sua senha secreta" style="padding-right: 40px;">
-                <i id="toggle-pass" class="fas fa-eye" onclick="togglePassVisibility('pass-login', 'toggle-pass')" style="position: absolute; right: 12px; top: 12px; cursor: pointer; opacity: 0.5;"></i>
+                <label>Sua Senha</label>
+                <input type="password" id="pass-login" placeholder="Sua senha secreta">
             </div>
-        </div>
-        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 20px;">
-            <input type="checkbox" id="remember-me" style="width: 16px; height: 16px; cursor: pointer;">
-            <label for="remember-me" style="margin: 0; cursor: pointer; font-size: 13px;">Manter conectado</label>
-        </div>
-        <button class="btn-generate" onclick="doLogin()">ACESSAR PAINEL</button>
+            <button class="btn-generate" onclick="doLogin()">ACESSAR PAINEL</button>
         </div>
     </div>
 
+    <!-- CONTEÚDO PRINCIPAL -->
     <div id="main-content">
         <div class="header">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
@@ -162,14 +157,8 @@
         </div>
 
         <div class="stats-grid">
-            <div class="stat-card">
-                <span>Vendas</span>
-                <strong id="stat-pago">0</strong>
-            </div>
-            <div class="stat-card">
-                <span>Total Recebido</span>
-                <strong id="stat-valor">R$ 0,00</strong>
-            </div>
+            <div class="stat-card"><span>Vendas</span><strong id="stat-pago">0</strong></div>
+            <div class="stat-card"><span>Total Recebido</span><strong id="stat-valor">R$ 0,00</strong></div>
         </div>
 
         <div class="action-card">
@@ -186,47 +175,33 @@
             </div>
 
             <button class="btn-generate" id="btn-main-generate" onclick="generatePix()">GERAR PIX AGORA</button>
-            
             <div class="loader" id="loader">Processando cobrança...</div>
 
             <div id="result-area">
                 <p id="pix-type-label" style="font-size: 13px; margin-bottom: 8px; color: var(--accent); font-weight: 600;">✅ PIX GERADO!</p>
-                
                 <div id="pix-timer-container" style="display: none; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); padding: 8px; border-radius: 8px; margin-bottom: 12px;">
-                    <p style="font-size: 10px; opacity: 0.7; margin-bottom: 2px;">EXPIRA EM:</p>
                     <span id="pix-timer" style="font-size: 20px; font-weight: 700; color: #f87171;">15:00</span>
                 </div>
-
                 <img id="qr-image" src="" alt="QR Code">
                 <code id="qr-text" style="display: none;"></code>
                 <button class="copy-btn" onclick="copyPix()">COPIAR CÓDIGO PIX</button>
             </div>
         </div>
 
-        <div id="financeiro-section" style="display: none;" class="action-card">
+        <!-- SEÇÃO FINANCEIRA (RESTAURADA) -->
+        <div id="financeiro-section" class="action-card">
             <h2>💰 Finanças e Saque</h2>
-            <div class="stats-grid" style="margin-bottom: 20px;">
-                <div class="stat-card" style="background: rgba(0,0,0,0.2);">
-                    <span>Comissão (80%)</span>
-                    <strong id="fin-comissao" style="color: #60a5fa;">R$ 0,00</strong>
-                </div>
-                <div class="stat-card" style="background: rgba(0,0,0,0.2);">
-                    <span>Disponível</span>
-                    <strong id="fin-disponivel">R$ 0,00</strong>
-                </div>
+            <div class="stats-grid">
+                <div class="stat-card"><span>Comissão</span><strong id="fin-comissao">R$ 0,00</strong></div>
+                <div class="stat-card"><span>Disponível</span><strong id="fin-disponivel">R$ 0,00</strong></div>
             </div>
-            <button class="btn-generate" onclick="requestSaque()" style="background: #a855f7; color: white;">SOLICITAR SAQUE</button>
+            <button class="btn-generate" style="background:#a855f7; color:white; margin-top:15px;" onclick="requestSaque()">SOLICITAR SAQUE</button>
         </div>
 
-        <div id="user-management-section" style="display: none;" class="action-card">
-            <h2>👥 Gestão de Parceiros</h2>
-            <div id="user-list-container" class="user-list">
-                <p style="font-size: 12px; opacity: 0.5;">Carregando usuários...</p>
-            </div>
-        </div>
-        
-        <div style="margin-top: 20px; text-align: center; padding-bottom: 40px;">
-            <button onclick="logout()" style="background: rgba(239, 68, 68, 0.1); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 12px 24px; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; width: 100%;">🚪 DESCONECTAR CONTA</button>
+        <!-- SEÇÃO GESTÃO (RESTAURADA) -->
+        <div id="user-management-section" style="display:none;" class="action-card">
+            <h2>👥 Parceiros</h2>
+            <div id="user-list-container" class="user-list"></div>
         </div>
     </div>
 
@@ -236,13 +211,6 @@
         let AUTH_HEADER = localStorage.getItem('pix_auth');
         let currentMethod = 'sigilo';
         let countdownInterval = null;
-
-        function togglePassVisibility(inputId, iconId) {
-            const input = document.getElementById(inputId);
-            const icon = document.getElementById(iconId);
-            if (input.type === "password") { input.type = "text"; icon.classList.replace("fa-eye", "fa-eye-slash"); }
-            else { input.type = "password"; icon.classList.replace("fa-eye-slash", "fa-eye"); }
-        }
 
         async function doLogin() {
             const u = document.getElementById('user-login').value;
@@ -260,22 +228,21 @@
         }
 
         async function loadStats() {
-            const resp = await fetch('/api/stats', { headers: { 'Authorization': AUTH_HEADER } });
-            const data = await resp.json();
-            document.getElementById('stat-pago').innerText = data.pago;
-            document.getElementById('stat-valor').innerText = `R$ ${data.valor.toFixed(2)}`;
+            const r = await fetch('/api/stats', { headers: { 'Authorization': AUTH_HEADER } });
+            const d = await r.json();
+            document.getElementById('stat-pago').innerText = d.pago;
+            document.getElementById('stat-valor').innerText = `R$ ${d.valor.toFixed(2)}`;
         }
 
         async function loadFinancas() {
-            const resp = await fetch('/api/financas', { headers: { 'Authorization': AUTH_HEADER } });
-            const data = await resp.json();
-            document.getElementById('fin-comissao').innerText = `R$ ${data.comissao_total.toFixed(2)}`;
-            document.getElementById('fin-disponivel').innerText = `R$ ${data.disponivel.toFixed(2)}`;
+            const r = await fetch('/api/financas', { headers: { 'Authorization': AUTH_HEADER } });
+            const d = await r.json();
+            document.getElementById('fin-comissao').innerText = `R$ ${d.comissao_total.toFixed(2)}`;
+            document.getElementById('fin-disponivel').innerText = `R$ ${d.disponivel.toFixed(2)}`;
         }
 
         async function generatePix() {
             const amount = document.getElementById('pix-amount').value;
-            if (!amount || amount <= 0) return alert("Valor inválido.");
             const btn = document.getElementById('btn-main-generate');
             const loader = document.getElementById('loader');
             btn.disabled = true; loader.style.display = 'block';
@@ -318,10 +285,10 @@
 
         function startTimer(duration) {
             clearInterval(countdownInterval);
-            let timer = duration, minutes, seconds;
+            let timer = duration, m, s;
             countdownInterval = setInterval(() => {
-                minutes = parseInt(timer / 60, 10); seconds = parseInt(timer % 60, 10);
-                document.getElementById('pix-timer').textContent = (minutes<10?"0"+minutes:minutes) + ":" + (seconds<10?"0"+seconds:seconds);
+                m = parseInt(timer / 60, 10); s = parseInt(timer % 60, 10);
+                document.getElementById('pix-timer').textContent = (m<10?"0"+m:m) + ":" + (s<10?"0"+s:s);
                 if (--timer < 0) { clearInterval(countdownInterval); alert("Expirado!"); }
             }, 1000);
         }
