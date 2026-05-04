@@ -278,10 +278,14 @@ def start_server():
     _server_started = True
 
     import uvicorn
-    from fastapi import FastAPI, HTTPException, Header, Request
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import HTMLResponse, FileResponse
+    from fastapi.security import HTTPBasic, HTTPBasicCredentials
     from pydantic import BaseModel
+    from typing import Optional, List
+    import httpx
+    
+    security = HTTPBasic()
 
     app = FastAPI(title="SigiloPay", docs_url="/docs")
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -345,9 +349,54 @@ def start_server():
             return FileResponse(dash_path)
         return HTMLResponse("<h1>Arquivo dashboard.html nao encontrado na pasta do servidor.</h1>", status_code=404)
 
-    @app.post("/gerar_pix")
-    async def gerar_pix(body: PixReq, x_partner_key: str = Header(...)):
-        parceiro = check_key(x_partner_key)
+    # --- NOVAS ROTAS DE COMPATIBILIDADE ---
+    @app.post("/api/login")
+    async def api_login(data: dict):
+        u = data.get("username")
+        p = data.get("password")
+        # Master Admin
+        if u == "admin_maisvelho" and p == "maisvelhoadmin":
+            return {"success": True, "role": "master"}
+        # Busca nos parceiros locais
+        for nome, chave in CFG["parceiros"].items():
+            if nome == u and chave == p:
+                return {"success": True, "role": "user"}
+        raise HTTPException(401, "Login ou senha inválidos")
+
+    @app.get("/api/stats")
+    async def api_stats(credentials: HTTPBasicCredentials = Depends(security)):
+        c = db()
+        rows = c.execute("SELECT * FROM cobranças").fetchall()
+        c.close()
+        rows = [dict(r) for r in rows]
+        
+        pagos = [r for r in rows if r["status"] == "pago"]
+        valor = sum(r["valor"] for r in pagos)
+        return {"total": len(rows), "pago": len(pagos), "valor": valor}
+
+    @app.get("/api/financas")
+    async def api_financas(credentials: HTTPBasicCredentials = Depends(security)):
+        st = await api_stats(credentials)
+        valor_total = st["valor"]
+        return {
+            "vendas_total": valor_total,
+            "comissao_total": valor_total * 0.8,
+            "sacado": 0,
+            "disponivel": valor_total * 0.8
+        }
+
+    @app.get("/api/users")
+    async def api_users_list(credentials: HTTPBasicCredentials = Depends(security)):
+        users = []
+        for nome, chave in CFG["parceiros"].items():
+            users.append({"login": nome, "saldo_disponivel": 0})
+        return {"users": users, "auto_saque": False}
+
+    @app.post("/api/gerar_pix_web")
+    async def gerar_pix(body: PixReq, x_partner_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+        # Tenta pegar a chave de um dos dois cabeçalhos
+        chave = x_partner_key or authorization
+        parceiro = check_key(chave)
         if body.valor <= 0:
             raise HTTPException(400, "Valor invalido")
         import secrets
@@ -403,8 +452,12 @@ def start_server():
                 "qr_code": qrc, "qr_text": qrt, "status": "aguardando"}
 
     @app.post("/api/gerar_pix_jogo")
-    async def gerar_pix_jogo_api(body: PixReq, x_partner_key: str = Header(...)):
-        parceiro = check_key(x_partner_key)
+    async def gerar_pix_jogo_api(body: PixReq, x_partner_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+        chave = x_partner_key or authorization
+        parceiro = check_key(chave)
+        
+        print(f"🤖 [ROBÔ] Solicitação de PIX JOGO recebida. Valor: R$ {body.valor}")
+        
         if body.valor <= 0:
             raise HTTPException(400, "Valor invalido")
             
