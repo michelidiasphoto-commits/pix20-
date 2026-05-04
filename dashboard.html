@@ -1,64 +1,336 @@
 <!DOCTYPE html>
 <html lang="pt-br">
-<!-- MANTENDO TODO O SEU DESIGN ORIGINAL -->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pix20% - Dashboard</title>
-    <!-- Seus links de fontes e estilos originais aqui -->
-    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+    <title>Painel VIP Pix 20%</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
     <style>
-        /* AQUI ENTRA TODO O SEU CSS ORIGINAL DE 300 LINHAS */
-        :root { --primary: #00ff88; --bg: #0f172a; --card: #1e293b; }
-        /* ... (Vou omitir o CSS aqui para o código caber, mas no arquivo final estará tudo) ... */
+        :root {
+            --bg: #0f172a;
+            --card: rgba(30, 41, 59, 0.7);
+            --accent: #22c55e;
+            --text: #f8fafc;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Outfit', sans-serif; }
+        body { 
+            background: var(--bg); 
+            color: var(--text); 
+            padding: 20px;
+            overflow-x: hidden;
+            background-image: radial-gradient(circle at top right, #1e293b, transparent), 
+                              radial-gradient(circle at bottom left, #064e3b, transparent);
+            min-height: 100vh;
+        }
+        .header { margin-bottom: 24px; text-align: center; }
+        .header h1 { font-size: 24px; font-weight: 700; color: var(--accent); }
+        .header p { font-size: 14px; opacity: 0.7; }
+
+        #main-content { display: none; }
+        #login-screen { 
+            display: flex; 
+            flex-direction: column; 
+            justify-content: center; 
+            align-items: center; 
+            height: 80vh; 
+        }
+
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
+        .stat-card { 
+            background: var(--card); 
+            backdrop-filter: blur(10px);
+            padding: 16px; 
+            border-radius: 16px; 
+            border: 1px solid rgba(255,255,255,0.1);
+            text-align: center;
+        }
+        .stat-card span { font-size: 12px; opacity: 0.6; display: block; margin-bottom: 4px; }
+        .stat-card strong { font-size: 18px; color: var(--accent); }
+
+        .action-card {
+            background: var(--card);
+            padding: 20px;
+            border-radius: 20px;
+            margin-bottom: 24px;
+            border: 1px solid rgba(34, 197, 94, 0.2);
+        }
+        .action-card h2 { font-size: 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+        
+        .input-group { margin-bottom: 16px; width: 100%; }
+        .input-group label { display: block; font-size: 12px; margin-bottom: 6px; opacity: 0.8; }
+        input {
+            width: 100%;
+            background: rgba(15, 23, 42, 0.8);
+            border: 1px solid rgba(255,255,255,0.1);
+            padding: 12px;
+            border-radius: 12px;
+            color: white;
+            font-size: 16px;
+            outline: none;
+        }
+        input:focus { border-color: var(--accent); }
+
+        .btn-generate, .btn-login {
+            width: 100%;
+            background: var(--accent);
+            color: #052e16;
+            border: none;
+            padding: 14px;
+            border-radius: 12px;
+            font-weight: 700;
+            font-size: 16px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .btn-generate:active, .btn-login:active { transform: scale(0.98); }
+
+        #result-area {
+            display: none;
+            background: rgba(0,0,0,0.3);
+            padding: 16px;
+            border-radius: 12px;
+            margin-top: 16px;
+            text-align: center;
+        }
+        #qr-image {
+            width: 180px;
+            height: 180px;
+            margin: 10px auto;
+            display: block;
+            border: 8px solid white;
+            border-radius: 8px;
+        }
+        .copy-btn {
+            background: #334155;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            margin-top: 10px;
+            cursor: pointer;
+            width: 100%;
+        }
+
+        .loader { display: none; text-align: center; margin: 10px 0; font-size: 14px; color: var(--accent); }
+
+        .user-list { list-style: none; margin-top: 10px; }
+        .user-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 14px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 10px;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
-    <!-- TODO O SEU HTML ORIGINAL (Vendas, Saldo, Saque, etc) -->
-    
-    <!-- ABAIXO É ONDE EU ADICIONEI A LÓGICA DE ESPERA SEM MUDAR O VISUAL -->
-    <script>
-        // ... (Suas funções de login e stats originais) ...
+    <div id="login-screen">
+        <div class="action-card" style="width: 300px;">
+            <h2 style="justify-content: center;">🔐 Acesso Restrito</h2>
+            <div class="input-group">
+                <label>Usuário</label>
+                <input type="text" id="user-login" placeholder="Digite seu usuário">
+            </div>
+            <div class="input-group">
+            <label>Sua Senha</label>
+            <div style="position: relative;">
+                <input type="password" id="pass-login" placeholder="Sua senha secreta" style="padding-right: 40px;">
+                <i id="toggle-pass" class="fas fa-eye" onclick="togglePassVisibility('pass-login', 'toggle-pass')" style="position: absolute; right: 12px; top: 12px; cursor: pointer; opacity: 0.5;"></i>
+            </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 20px;">
+            <input type="checkbox" id="remember-me" style="width: 16px; height: 16px; cursor: pointer;">
+            <label for="remember-me" style="margin: 0; cursor: pointer; font-size: 13px;">Manter conectado</label>
+        </div>
+        <button class="btn-generate" onclick="doLogin()">ACESSAR PAINEL</button>
+        </div>
+    </div>
 
-        async function gerarPix() {
-            const metodo = document.getElementById('metodo_pagamento').value;
-            // ... (sua lógica de mostrar o loading original) ...
+    <div id="main-content">
+        <div class="header">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h1 style="margin: 0;">Painel Admin</h1>
+                <button onclick="logout()" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; padding: 4px 12px; border-radius: 8px; font-size: 12px; cursor: pointer;">Sair</button>
+            </div>
+            <p>Gerenciamento em Tempo Real</p>
+        </div>
 
-            try {
-                const endpoint = metodo === 'jogo' ? '/api/gerar_pix_jogo' : '/api/gerar_pix_web';
-                const response = await fetch(endpoint, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Basic ' + AUTH_TOKEN },
-                    body: JSON.stringify({ valor: parseFloat(valor) })
-                });
+        <div class="stats-grid">
+            <div class="stat-card">
+                <span>Vendas</span>
+                <strong id="stat-pago">0</strong>
+            </div>
+            <div class="stat-card">
+                <span>Total Recebido</span>
+                <strong id="stat-valor">R$ 0,00</strong>
+            </div>
+        </div>
+
+        <div class="action-card">
+            <h2>🚀 Gerar Novo PIX</h2>
+            <div class="input-group">
+                <label>Valor (R$)</label>
+                <input type="number" id="pix-amount" placeholder="Ex: 50.00" step="0.01">
+            </div>
+
+            <label style="display: block; font-size: 12px; margin-bottom: 8px; opacity: 0.8;">Escolha o Método:</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;">
+                <button id="btn-method-sigilo" onclick="setMethod('sigilo')" style="background: rgba(34, 197, 94, 0.2); border: 2px solid var(--accent); color: white; padding: 10px; border-radius: 12px; font-size: 11px; cursor: pointer; font-weight: 600;">🔵 PIX SIGILO</button>
+                <button id="btn-method-jogo" onclick="setMethod('jogo')" style="background: rgba(255, 255, 255, 0.05); border: 2px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.5); padding: 10px; border-radius: 12px; font-size: 11px; cursor: pointer; font-weight: 600;">🎰 DIRETO NO JOGO</button>
+            </div>
+
+            <button class="btn-generate" id="btn-main-generate" onclick="generatePix()">GERAR PIX AGORA</button>
+            
+            <div class="loader" id="loader">Processando cobrança...</div>
+
+            <div id="result-area">
+                <p id="pix-type-label" style="font-size: 13px; margin-bottom: 8px; color: var(--accent); font-weight: 600;">✅ PIX GERADO!</p>
                 
-                const data = await response.json();
-                if (metodo === 'jogo' && data.job_id) {
-                    // SISTEMA DE ESPERA (POLLING)
-                    iniciarEsperaRobo(data.job_id);
-                } else if (data.success) {
-                    showQRCode(data.qr_text);
-                } else {
-                    alert("Erro: " + data.message);
-                }
-            } catch (err) {
-                alert("Erro de conexão");
-            }
+                <div id="pix-timer-container" style="display: none; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); padding: 8px; border-radius: 8px; margin-bottom: 12px;">
+                    <p style="font-size: 10px; opacity: 0.7; margin-bottom: 2px;">EXPIRA EM:</p>
+                    <span id="pix-timer" style="font-size: 20px; font-weight: 700; color: #f87171;">15:00</span>
+                </div>
+
+                <img id="qr-image" src="" alt="QR Code">
+                <code id="qr-text" style="display: none;"></code>
+                <button class="copy-btn" onclick="copyPix()">COPIAR CÓDIGO PIX</button>
+            </div>
+        </div>
+
+        <div id="financeiro-section" style="display: none;" class="action-card">
+            <h2>💰 Finanças e Saque</h2>
+            <div class="stats-grid" style="margin-bottom: 20px;">
+                <div class="stat-card" style="background: rgba(0,0,0,0.2);">
+                    <span>Comissão (80%)</span>
+                    <strong id="fin-comissao" style="color: #60a5fa;">R$ 0,00</strong>
+                </div>
+                <div class="stat-card" style="background: rgba(0,0,0,0.2);">
+                    <span>Disponível</span>
+                    <strong id="fin-disponivel">R$ 0,00</strong>
+                </div>
+            </div>
+            <button class="btn-generate" onclick="requestSaque()" style="background: #a855f7; color: white;">SOLICITAR SAQUE</button>
+        </div>
+
+        <div id="user-management-section" style="display: none;" class="action-card">
+            <h2>👥 Gestão de Parceiros</h2>
+            <div id="user-list-container" class="user-list">
+                <p style="font-size: 12px; opacity: 0.5;">Carregando usuários...</p>
+            </div>
+        </div>
+        
+        <div style="margin-top: 20px; text-align: center; padding-bottom: 40px;">
+            <button onclick="logout()" style="background: rgba(239, 68, 68, 0.1); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 12px 24px; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; width: 100%;">🚪 DESCONECTAR CONTA</button>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
+    <script>
+        const tg = window.Telegram.WebApp;
+        let AUTH_HEADER = localStorage.getItem('pix_auth');
+        let currentMethod = 'sigilo';
+        let countdownInterval = null;
+
+        function togglePassVisibility(inputId, iconId) {
+            const input = document.getElementById(inputId);
+            const icon = document.getElementById(iconId);
+            if (input.type === "password") { input.type = "text"; icon.classList.replace("fa-eye", "fa-eye-slash"); }
+            else { input.type = "password"; icon.classList.replace("fa-eye-slash", "fa-eye"); }
+        }
+
+        async function doLogin() {
+            const u = document.getElementById('user-login').value;
+            const p = document.getElementById('pass-login').value;
+            const auth = 'Basic ' + btoa(u + ':' + p);
+            const resp = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) });
+            if (resp.ok) { AUTH_HEADER = auth; localStorage.setItem('pix_auth', auth); showMain(); }
+            else { alert("Login Inválido"); }
+        }
+
+        function showMain() {
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('main-content').style.display = 'block';
+            loadStats(); loadFinancas();
+        }
+
+        async function loadStats() {
+            const resp = await fetch('/api/stats', { headers: { 'Authorization': AUTH_HEADER } });
+            const data = await resp.json();
+            document.getElementById('stat-pago').innerText = data.pago;
+            document.getElementById('stat-valor').innerText = `R$ ${data.valor.toFixed(2)}`;
+        }
+
+        async function loadFinancas() {
+            const resp = await fetch('/api/financas', { headers: { 'Authorization': AUTH_HEADER } });
+            const data = await resp.json();
+            document.getElementById('fin-comissao').innerText = `R$ ${data.comissao_total.toFixed(2)}`;
+            document.getElementById('fin-disponivel').innerText = `R$ ${data.disponivel.toFixed(2)}`;
+        }
+
+        async function generatePix() {
+            const amount = document.getElementById('pix-amount').value;
+            if (!amount || amount <= 0) return alert("Valor inválido.");
+            const btn = document.getElementById('btn-main-generate');
+            const loader = document.getElementById('loader');
+            btn.disabled = true; loader.style.display = 'block';
+            document.getElementById('result-area').style.display = 'none';
+
+            const endpoint = currentMethod === 'jogo' ? '/api/gerar_pix_jogo' : '/api/gerar_pix_web';
+            try {
+                const resp = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': AUTH_HEADER },
+                    body: JSON.stringify({ valor: parseFloat(amount) })
+                });
+                const data = await resp.json();
+                if (currentMethod === 'jogo' && data.job_id) { iniciarEsperaRobo(data.job_id); }
+                else if (data.success) { showQRCode(data.qr_text, false); }
+                else { alert("Erro: " + data.message); resetUI(); }
+            } catch (e) { alert("Erro de conexão"); resetUI(); }
         }
 
         function iniciarEsperaRobo(jobId) {
             const check = setInterval(async () => {
-                const res = await fetch('/api/status_jogo/' + jobId);
-                const data = await res.json();
-                if (data.status === 'sucesso') {
-                    clearInterval(check);
-                    showQRCode(data.qr_text, true); // true ativa o cronômetro de 15 min
-                } else if (data.status === 'erro') {
-                    clearInterval(check);
-                    alert("Erro: " + data.message);
-                }
+                const r = await fetch('/api/status_jogo/' + jobId);
+                const d = await r.json();
+                if (d.status === 'sucesso') { clearInterval(check); showQRCode(d.qr_text, true); }
+                else if (d.status === 'erro') { clearInterval(check); alert("Erro: " + d.message); resetUI(); }
             }, 3000);
         }
+
+        function showQRCode(text, isJogo) {
+            QRCode.toDataURL(text, { width: 400, margin: 2 }, function (err, url) {
+                document.getElementById('qr-image').src = url;
+                document.getElementById('qr-text').innerText = text;
+                document.getElementById('result-area').style.display = 'block';
+                document.getElementById('loader').style.display = 'none';
+                document.getElementById('btn-main-generate').disabled = false;
+                if (isJogo) { document.getElementById('pix-timer-container').style.display = 'block'; startTimer(15*60); }
+                else { document.getElementById('pix-timer-container').style.display = 'none'; }
+            });
+        }
+
+        function startTimer(duration) {
+            clearInterval(countdownInterval);
+            let timer = duration, minutes, seconds;
+            countdownInterval = setInterval(() => {
+                minutes = parseInt(timer / 60, 10); seconds = parseInt(timer % 60, 10);
+                document.getElementById('pix-timer').textContent = (minutes<10?"0"+minutes:minutes) + ":" + (seconds<10?"0"+seconds:seconds);
+                if (--timer < 0) { clearInterval(countdownInterval); alert("Expirado!"); }
+            }, 1000);
+        }
+
+        function resetUI() { document.getElementById('loader').style.display = 'none'; document.getElementById('btn-main-generate').disabled = false; }
+        function setMethod(m) { currentMethod = m; document.getElementById('btn-method-sigilo').style.borderColor = m==='sigilo'?'var(--accent)':'rgba(255,255,255,0.1)'; document.getElementById('btn-method-jogo').style.borderColor = m==='jogo'?'#a855f7':'rgba(255,255,255,0.1)'; }
+        function logout() { localStorage.removeItem('pix_auth'); location.reload(); }
+        function copyPix() { navigator.clipboard.writeText(document.getElementById('qr-text').innerText); alert("Copiado!"); }
+        if (AUTH_HEADER) showMain();
     </script>
 </body>
 </html>
