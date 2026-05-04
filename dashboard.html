@@ -3,73 +3,86 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Painel Pix 20%</title>
+    <title>Painel VIP Pix</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         :root { --bg: #0f172a; --card: rgba(30, 41, 59, 0.9); --accent: #22c55e; --text: #f8fafc; }
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Outfit', sans-serif; -webkit-tap-highlight-color: transparent; }
-        body { background: var(--bg); color: var(--text); overflow-x: hidden; padding: 10px; }
+        body { background: var(--bg); color: var(--text); padding: 10px; }
         
         #login-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 90vh; }
-        .login-card { background: var(--card); padding: 30px; border-radius: 24px; width: 100%; max-width: 340px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 20px 40px rgba(0,0,0,0.4); }
+        .login-card { background: var(--card); padding: 30px; border-radius: 24px; width: 100%; max-width: 340px; border: 1px solid rgba(255,255,255,0.1); }
         
-        #main-content { display: none; padding-top: 10px; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .header h1 { font-size: 20px; color: var(--accent); }
-        
-        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
-        .stat-card { background: var(--card); padding: 15px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.1); text-align: center; }
-        .stat-card span { font-size: 11px; opacity: 0.6; display: block; margin-bottom: 4px; }
-        .stat-card strong { font-size: 18px; color: var(--accent); }
-        
-        .action-card { background: var(--card); padding: 20px; border-radius: 20px; border: 1px solid rgba(34, 197, 94, 0.2); }
-        input { width: 100%; background: #000; border: 1px solid #334155; padding: 14px; border-radius: 12px; color: white; margin-bottom: 15px; font-size: 16px; outline: none; }
-        .btn { width: 100%; background: var(--accent); color: #052e16; border: none; padding: 16px; border-radius: 12px; font-weight: 700; font-size: 16px; cursor: pointer; transition: 0.2s; }
-        .btn:active { transform: scale(0.98); opacity: 0.9; }
+        #main-content { display: none; }
+        .nav-tabs { display: flex; gap: 10px; margin-bottom: 20px; background: rgba(0,0,0,0.2); padding: 5px; border-radius: 12px; }
+        .nav-item { flex: 1; text-align: center; padding: 10px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+        .nav-item.active { background: var(--accent); color: #052e16; }
 
-        #result-area { display: none; margin-top: 20px; background: rgba(0,0,0,0.3); padding: 15px; border-radius: 16px; text-align: center; }
-        #qr-image { width: 220px; height: 220px; background: white; margin: 15px auto; border-radius: 12px; display: block; }
-        .copy-text { font-size: 10px; word-break: break-all; opacity: 0.5; margin: 10px 0; }
-        .loader { display: none; color: var(--accent); text-align: center; margin: 10px 0; font-weight: 600; }
+        .section { display: none; }
+        .section.active { display: block; }
+
+        .card { background: var(--card); padding: 20px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 15px; }
+        input { width: 100%; background: #000; border: 1px solid #334155; padding: 14px; border-radius: 12px; color: white; margin-bottom: 10px; font-size: 15px; outline: none; }
+        .btn { width: 100%; background: var(--accent); color: #052e16; border: none; padding: 15px; border-radius: 12px; font-weight: 700; cursor: pointer; }
+        
+        /* LISTA DE USUARIOS */
+        .user-item { display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .user-item:last-child { border: none; }
+        .del-btn { background: #ef4444; color: white; border: none; padding: 5px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; }
+
+        #result-area { display: none; text-align: center; margin-top: 20px; }
+        #qr-image { width: 220px; height: 220px; background: white; margin: 10px auto; border-radius: 12px; }
     </style>
 </head>
 <body>
     <div id="login-screen">
         <div class="login-card">
-            <h2 style="text-align: center; margin-bottom: 24px;">🔐 Acesso Restrito</h2>
+            <h2 style="text-align: center; margin-bottom: 20px;">🔐 Acesso VIP</h2>
             <input type="text" id="user" placeholder="Usuário">
             <input type="password" id="pass" placeholder="Senha">
-            <button class="btn" onclick="login()">ENTRAR NO PAINEL</button>
-            <p id="login-err" style="color: #ef4444; font-size: 12px; margin-top: 10px; text-align: center; display: none;">Login ou Senha incorretos!</p>
+            <button class="btn" onclick="login()">ENTRAR</button>
         </div>
     </div>
 
     <div id="main-content">
-        <div class="header">
-            <h1>Painel VIP</h1>
-            <button onclick="location.reload()" style="background:none; border:none; color:#ef4444; font-size:12px;">Deslogar</button>
+        <div class="nav-tabs">
+            <div class="nav-item active" onclick="switchTab('pix', this)">💰 GERAR PIX</div>
+            <div id="admin-tab" class="nav-item" style="display:none;" onclick="switchTab('users', this)">👥 USUÁRIOS</div>
         </div>
-        <div class="stats-grid">
-            <div class="stat-card"><span>VENDAS</span><strong id="stat-pago">0</strong></div>
-            <div class="stat-card"><span>RECEBIDO</span><strong id="stat-valor">R$ 0,00</strong></div>
+
+        <!-- SEÇÃO PIX -->
+        <div id="pix" class="section active">
+            <div class="card">
+                <input type="number" id="amount" placeholder="Valor (R$)">
+                <button class="btn" onclick="gerar()">GERAR PIX</button>
+                <div id="result-area">
+                    <img id="qr-image" src="">
+                    <button class="btn" style="background:#334155; color:white; margin-top:10px;" onclick="copy()">COPIAR PIX</button>
+                    <div id="pix-code" style="display:none;"></div>
+                </div>
+            </div>
         </div>
-        <div class="action-card">
-            <input type="number" id="amount" placeholder="Valor do PIX (R$)">
-            <button class="btn" id="btn-gen" onclick="gerar()">GERAR PIX AGORA</button>
-            <div class="loader" id="loader">Processando...</div>
-            <div id="result-area">
-                <img id="qr-image" src="">
-                <div class="copy-text" id="pix-code"></div>
-                <button class="btn" style="background:#334155; color:white;" onclick="copy()">COPIAR PIX</button>
+
+        <!-- SEÇÃO USUÁRIOS (SÓ PARA ADMIN) -->
+        <div id="users" class="section">
+            <div class="card">
+                <h4 style="margin-bottom:10px;">➕ Novo Usuário</h4>
+                <input type="text" id="new-user" placeholder="Login">
+                <input type="password" id="new-pass" placeholder="Senha">
+                <button class="btn" onclick="addUser()">CRIAR ACESSO</button>
+            </div>
+            <div class="card">
+                <h4 style="margin-bottom:15px;">👥 Usuários Ativos</h4>
+                <div id="user-list">Carregando...</div>
             </div>
         </div>
     </div>
 
     <script>
         const tg = window.Telegram.WebApp;
-        tg.expand();
+        let currentUser = "";
 
         async function login() {
             const u = document.getElementById('user').value;
@@ -81,26 +94,56 @@
             });
             const d = await r.json();
             if(d.success) {
+                currentUser = u;
                 document.getElementById('login-screen').style.display = 'none';
                 document.getElementById('main-content').style.display = 'block';
-                loadStats();
-            } else {
-                document.getElementById('login-err').style.display = 'block';
-            }
+                if(d.role === 'admin') {
+                    document.getElementById('admin-tab').style.display = 'block';
+                    loadUsers();
+                }
+            } else { alert("Erro de login"); }
         }
 
-        async function loadStats() {
-            const r = await fetch('/api/stats');
-            const d = await r.json();
-            document.getElementById('stat-pago').innerText = d.pago || 0;
-            document.getElementById('stat-valor').innerText = `R$ ${(d.valor || 0).toFixed(2)}`;
+        function switchTab(id, el) {
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+            el.classList.add('active');
+        }
+
+        async function loadUsers() {
+            const r = await fetch('/api/users');
+            const users = await r.json();
+            const list = document.getElementById('user-list');
+            list.innerHTML = users.map(u => `
+                <div class="user-item">
+                    <span>👤 ${u.username}</span>
+                    <button class="del-btn" onclick="delUser('${u.username}')">Excluir</button>
+                </div>
+            `).join('') || "Nenhum usuário extra.";
+        }
+
+        async function addUser() {
+            const u = document.getElementById('new-user').value;
+            const p = document.getElementById('new-pass').value;
+            if(!u || !p) return;
+            await fetch('/api/users/add', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({username: u, password: p})
+            });
+            alert("Usuário criado!");
+            loadUsers();
+        }
+
+        async function delUser(u) {
+            if(!confirm("Deseja excluir?")) return;
+            await fetch(`/api/users/${u}`, { method: 'DELETE' });
+            loadUsers();
         }
 
         async function gerar() {
             const val = document.getElementById('amount').value;
-            if(!val) return;
-            document.getElementById('btn-gen').style.display = 'none';
-            document.getElementById('loader').style.display = 'block';
             const r = await fetch('/api/gerar_pix_web', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -112,20 +155,13 @@
                 QRCode.toDataURL(d.qr_text, {width: 400, margin: 2}, (err, url) => {
                     document.getElementById('qr-image').src = url;
                     document.getElementById('result-area').style.display = 'block';
-                    document.getElementById('loader').style.display = 'none';
                 });
-            } else {
-                alert("Erro ao gerar PIX");
-                document.getElementById('btn-gen').style.display = 'block';
-                document.getElementById('loader').style.display = 'none';
             }
         }
 
         function copy() {
-            const txt = document.getElementById('pix-code').innerText;
-            navigator.clipboard.writeText(txt);
-            tg.HapticFeedback.notificationOccurred('success');
-            alert("Código Copiado!");
+            navigator.clipboard.writeText(document.getElementById('pix-code').innerText);
+            alert("Copiado!");
         }
     </script>
 </body>
