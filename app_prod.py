@@ -23,15 +23,25 @@ bot = telebot.TeleBot(TOKEN)
 MONGO_URI = "mongodb+srv://michelidiasphoto_db_user:lVN70gFWTgsecLTw@cluster0.eb7vf2i.mongodb.net/?appName=Cluster0"
 client = MongoClient(MONGO_URI); db = client["sigilopay_db"]
 col_cobrancas = db["cobrancas"]
+col_users = db["users"]
 
 class PixReq(BaseModel): valor: float
 
-def gerar_cpf_aleatorio():
-    c = [random.randint(0, 9) for _ in range(9)]
-    for _ in range(2):
-        v = sum([(len(c) + 1 - i) * val for i, val in enumerate(c)]) % 11
-        c.append(11 - v if v > 1 else 0)
-    return "".join(map(str, c))
+# --- LOGIN SEGURO (NOME ATUALIZADO) ---
+@app.post("/api/login")
+async def api_login(d: dict):
+    u = d.get("username")
+    p = d.get("password")
+    
+    # Login sem o '_'
+    if u == "adminmaisvelho" and p == "maisvelhoadmin":
+        return {"success": True, "role": "master"}
+    
+    user_db = col_users.find_one({"username": u, "password": p})
+    if user_db:
+        return {"success": True, "role": user_db.get("role", "user")}
+        
+    return {"success": False, "message": "Login inválido"}
 
 # --- BOT TELEGRAM ---
 @bot.message_handler(commands=['start', 'painel'])
@@ -40,7 +50,7 @@ def send_welcome(message):
     markup = InlineKeyboardMarkup()
     web_button = InlineKeyboardButton(text="📱 ABRIR PAINEL WEB", web_app=WebAppInfo(url=WEBAPP_URL))
     markup.add(web_button)
-    text = "✅ *SISTEMA PIX 20% ATIVO!*\n\nUse o botão abaixo para abrir o painel ou gere por comando:\n\n💰 `/pix 50` - Gerar no chat"
+    text = "✅ *SISTEMA PIX 20% ATIVO!*\n\n💰 `/pix 50` - Gerar no chat"
     bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
 
 @bot.message_handler(commands=['pix'])
@@ -49,50 +59,57 @@ def bot_gerar_pix(message):
     try:
         valor = float(message.text.split()[1])
         ident = f"bot_{int(time.time())}"
-        str_cpf = gerar_cpf_aleatorio()
-        c_data = {"name": "Bot User", "email": "b@t.com", "phone": "11999999999", "document": str_cpf}
+        str_cpf = "".join([str(random.randint(0,9)) for _ in range(11)])
+        c_data = {"name": "Bot", "email": "b@t.com", "phone": "11999999999", "document": str_cpf}
         payload = {"identifier": ident, "amount": valor, "callbackUrl": f"{WEBAPP_URL}/webhook", "client": c_data, "customer": c_data}
         headers = {"x-public-key": "laispereiraphoto_2s0vatrdx6coy3pp", "x-secret-key": "kqkjdw66o0hv37gz2w4n15m5thp0w2jv6txe1k4ss7354169260wdpqegta7en2v", "Content-Type": "application/json"}
         with httpx.Client(timeout=30) as cl:
             resp = cl.post("https://app.sigilopay.com.br/api/v1/gateway/pix/receive", json=payload, headers=headers)
-            data = resp.json()
-            pix = data.get("pix") or data.get("order", {}).get("pix") or data.get("data", {}).get("pix") or {}
-            qrt = pix.get("code") or pix.get("payload") or pix.get("qrCodeText") or ""
-            if qrt: bot.reply_to(message, f"✅ *PIX GERADO!*\n💰 R$ {valor:.2f}\n\n📱 Copia e Cola:\n`{qrt}`", parse_mode="Markdown")
-            else: bot.reply_to(message, f"❌ Erro SigiloPay: {data.get('message') or str(data)[:100]}")
+            pix = resp.json().get("pix") or {}
+            qrt = pix.get("code") or pix.get("payload") or ""
+            if qrt:
+                col_cobrancas.insert_one({"transaction_id": ident, "valor": valor, "status": "aguardando", "criado_em": datetime.now()})
+                bot.reply_to(message, f"✅ *PIX GERADO!*\n💰 R$ {valor:.2f}\n\n`{qrt}`", parse_mode="Markdown")
     except: pass
 
-# --- ROTAS WEB ---
+@app.post("/webhook")
+async def webhook_sigilopay(request: Request):
+    try:
+        data = await request.json()
+        tid = data.get("identifier") or data.get("transactionId")
+        if data.get("status") in ["pago", "paid"]:
+            col_cobrancas.update_one({"transaction_id": tid}, {"$set": {"status": "pago", "pago_em": datetime.now()}})
+            bot.send_message(ADMIN_ID, f"💰 *PAGAMENTO RECEBIDO!*\n🆔 ID: `{tid}`\n✅ Status: PAGO", parse_mode="Markdown")
+        return {"success": True}
+    except: return {"success": False}
+
 @app.get("/", response_class=HTMLResponse)
 async def get_dashboard():
     with open("dashboard.html", "r", encoding="utf-8") as f: return f.read()
 
-@app.post("/api/login")
-async def api_login(d: dict):
-    if d.get("username") == "admin_maisvelho" and d.get("password") == "maisvelhoadmin": return {"success": True}
-    return {"success": False}
-
 @app.get("/api/stats")
 async def get_stats():
-    return {"pago": 3, "valor": 150.0}
+    pago = col_cobrancas.count_documents({"status": "pago"})
+    total = sum([c.get("valor", 0) for c in col_cobrancas.find({"status": "pago"})])
+    return {"pago": pago, "valor": total}
 
 @app.post("/api/gerar_pix_web")
 async def gerar_pix_web(req: PixReq):
     ident = f"web_{int(time.time())}"
-    str_cpf = gerar_cpf_aleatorio()
+    str_cpf = "".join([str(random.randint(0,9)) for _ in range(11)])
     c_data = {"name": "Web VIP", "email": "w@e.com", "phone": "11999999999", "document": str_cpf}
     payload = {"identifier": ident, "amount": round(req.valor, 2), "callbackUrl": f"{WEBAPP_URL}/webhook", "client": c_data, "customer": c_data}
-    headers = {"x-public-key": "laispereiraphoto_2s0vatrdx6coy3pp", "x-secret-key": "kqkjdw66o0hv37gz2w4n15m5thp0w2jv6txe1k4ss7354169260wdpqegta7en2v", "Content-Type": "application/json", "Accept": "application/json"}
+    headers = {"x-public-key": "laispereiraphoto_2s0vatrdx6coy3pp", "x-secret-key": "kqkjdw66o0hv37gz2w4n15m5thp0w2jv6txe1k4ss7354169260wdpqegta7en2v", "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=30) as cl:
         try:
             resp = await cl.post("https://app.sigilopay.com.br/api/v1/gateway/pix/receive", json=payload, headers=headers)
-            data = resp.json()
-            pix = data.get("pix") or data.get("order", {}).get("pix") or data.get("data", {}).get("pix") or {}
-            qrt = pix.get("code") or pix.get("payload") or pix.get("qrCodeText") or data.get("qrcode") or ""
-            if qrt: return {"success": True, "qr_text": qrt}
-            err_det = data.get("details") or data.get("message") or str(data)
-            return {"success": False, "message": f"Erro SigiloPay: {err_det}"}
-        except Exception as e: return {"success": False, "message": str(e)}
+            pix = resp.json().get("pix") or {}
+            qrt = pix.get("code") or pix.get("payload") or ""
+            if qrt:
+                col_cobrancas.insert_one({"transaction_id": ident, "valor": req.valor, "status": "aguardando", "criado_em": datetime.now()})
+                return {"success": True, "qr_text": qrt}
+            return {"success": False}
+        except: return {"success": False}
 
 @app.on_event("startup")
 def startup(): threading.Thread(target=lambda: bot.infinity_polling(), daemon=True).start()
