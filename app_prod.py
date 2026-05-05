@@ -36,7 +36,15 @@ def gerar_cpf_real():
         c.append(11 - v if v > 1 else 0)
     return "".join(map(str, c))
 
-# --- API E GESTÃO ---
+# --- ROTAS DO PAINEL ---
+@app.get("/", response_class=HTMLResponse)
+@app.get("/painel", response_class=HTMLResponse)
+async def get_dashboard():
+    try:
+        with open("dashboard.html", "r", encoding="utf-8") as f: return f.read()
+    except: return "dashboard.html ausente."
+
+# --- API DE DADOS ---
 @app.post("/api/login")
 async def api_login(d: dict):
     u = d.get("username"); p = d.get("password")
@@ -74,7 +82,7 @@ async def delete_user(username: str):
 async def api_saque(req: SaqueReq):
     try:
         col_saques.insert_one({"username": req.username, "valor": req.valor, "chave_pix": req.pix_key, "data": datetime.now(), "status": "pendente"})
-        bot.send_message(ADMIN_ID, f"💸 *SAQUE SOLICITADO!*\n👤 `{req.username}`\n💰 `R$ {req.valor:.2f}`\n🔑 `{req.pix_key}`", parse_mode="Markdown")
+        bot.send_message(ADMIN_ID, f"💸 *SAQUE:* `{req.username}` | `R$ {req.valor:.2f}` | `{req.pix_key}`", parse_mode="Markdown")
         return {"success": True}
     except: return {"success": False}
 
@@ -111,17 +119,7 @@ def send_welcome(message):
     if str(message.from_user.id) != ADMIN_ID: return
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton(text="📱 ABRIR PAINEL", web_app=WebAppInfo(url=WEBAPP_URL)))
-    bot.send_message(message.chat.id, "✅ *SISTEMA OPERACIONAL!*", parse_mode="Markdown", reply_markup=markup)
-
-# --- CATCH-ALL (CORRIGIDO PARA NÃO BLOQUEAR APIs) ---
-@app.get("/{full_path:path}", response_class=HTMLResponse)
-async def catch_all(request: Request, full_path: str):
-    # Se o caminho for uma API, deixa o FastAPI dar erro 404 real ou processar se existir
-    if full_path.startswith("api") or full_path == "webhook":
-        raise HTTPException(status_code=404)
-    try:
-        with open("dashboard.html", "r", encoding="utf-8") as f: return f.read()
-    except: return "dashboard.html não encontrado."
+    bot.send_message(message.chat.id, "✅ *SISTEMA ON!*", parse_mode="Markdown", reply_markup=markup)
 
 def run_bot():
     bot.remove_webhook(); time.sleep(2); bot.infinity_polling(timeout=60)
@@ -129,7 +127,7 @@ def run_bot():
 @app.on_event("startup")
 def startup():
     threading.Thread(target=run_bot, daemon=True).start()
-    try: bot.send_message(ADMIN_ID, "🚀 *SISTEMA REESTABELECIDO!* Gestão e Saques ativos.")
+    try: bot.send_message(ADMIN_ID, "🚀 *TUDO PRONTO!* Gestão e Saques reativados.")
     except: pass
 
 if __name__ == "__main__":
