@@ -20,12 +20,13 @@
         .section { display: none; }
         .section.active { display: block; }
         .card { background: var(--card); padding: 20px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 15px; }
-        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
         .stat-card { background: rgba(0,0,0,0.3); padding: 15px; border-radius: 15px; text-align: center; border: 1px solid rgba(255,255,255,0.05); }
         .stat-card span { font-size: 10px; opacity: 0.6; display: block; margin-bottom: 5px; }
         .stat-card strong { font-size: 16px; color: var(--accent); }
         input { width: 100%; background: #000; border: 1px solid #334155; padding: 14px; border-radius: 12px; color: white; margin-bottom: 10px; font-size: 15px; }
         .btn { width: 100%; background: var(--accent); color: #052e16; border: none; padding: 15px; border-radius: 12px; font-weight: 700; cursor: pointer; }
+        .btn-red { background: #ef4444; color: white; }
         .fixed-saque-bar { position: fixed; bottom: 20px; left: 10px; right: 10px; z-index: 1000; display: none; }
         .btn-saque-fixed { background: #8b5cf6; color: white; box-shadow: 0 10px 20px rgba(139, 92, 246, 0.4); }
         .user-item { display: flex; flex-direction: column; padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); gap: 5px; }
@@ -62,6 +63,9 @@
                 <div class="stat-card"><span>TOTAL VENDIDO</span><strong id="stat-total">R$ 0,00</strong></div>
                 <div class="stat-card"><span>SALDO (80%)</span><strong id="stat-saldo">R$ 0,00</strong></div>
             </div>
+            
+            <button id="btn-reset-global" class="btn btn-red" style="display:none; font-size:12px; padding:10px; margin-bottom:15px;" onclick="resetSaldo('SISTEMA_TOTAL')">🚨 ZERAR FATURAMENTO GLOBAL</button>
+
             <div class="card">
                 <input type="number" id="amount" placeholder="Valor (R$)">
                 <button class="btn" onclick="gerar()">GERAR PIX</button>
@@ -91,6 +95,7 @@
     <script>
         let currentUser = "";
         let currentSaldo = 0;
+        let userRole = "";
 
         async function login() {
             const u = document.getElementById('user').value;
@@ -99,10 +104,14 @@
             const d = await r.json();
             if(d.success) {
                 currentUser = u;
+                userRole = d.role;
                 document.getElementById('login-screen').style.display = 'none';
                 document.getElementById('main-content').style.display = 'block';
                 document.getElementById('saque-bar').style.display = 'block';
-                if(d.role === 'admin') document.getElementById('admin-tab').style.display = 'block';
+                if(userRole === 'admin') {
+                    document.getElementById('admin-tab').style.display = 'block';
+                    document.getElementById('btn-reset-global').style.display = 'block';
+                }
                 loadStats();
             } else { alert("Dados incorretos!"); }
         }
@@ -146,10 +155,11 @@
         }
 
         async function resetSaldo(name) {
-            if(!confirm(`Deseja ZERAR o saldo atual de ${name}?`)) return;
+            let msg = name === 'SISTEMA_TOTAL' ? "Deseja ZERAR o faturamento GLOBAL de todo o sistema?" : `Deseja zerar o saldo de ${name}?`;
+            if(!confirm(msg)) return;
             const r = await fetch(`/api/users/reset/${name}`, { method: 'POST' });
             const d = await r.json();
-            if(d.success) { alert(`Saldo de ${name} zerado com sucesso!`); loadUsers(); }
+            if(d.success) { alert("Saldo zerado com sucesso!"); loadStats(); if(userRole === 'admin') loadUsers(); }
         }
 
         async function addUser() {
@@ -169,7 +179,7 @@
 
         async function solicitarSaque() {
             if(currentSaldo <= 0) return alert("Sem saldo.");
-            const valor = prompt(`Quanto deseja sacar? (Máx: R$ ${currentSaldo.toFixed(2)})`);
+            const valor = prompt(`Valor para sacar? (Máx: R$ ${currentSaldo.toFixed(2)})`);
             if(!valor || isNaN(valor) || parseFloat(valor) <= 0) return;
             const chave = prompt("Chave PIX:");
             if(!chave) return;

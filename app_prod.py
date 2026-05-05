@@ -45,7 +45,6 @@ async def list_users():
         for u in users_raw:
             try:
                 uid = str(u["_id"]); name = u.get("username", "Desconhecido")
-                # SÓ CONTA O QUE ESTÁ COM STATUS 'pago'
                 pago_u = list(col_cobrancas.find({"status": "pago", "criado_por": name}))
                 total_v = sum([float(c.get("valor", 0)) for c in pago_u])
                 res.append({"id": uid, "username": name, "total_vendas": total_v, "saldo_disponivel": total_v * 0.8})
@@ -56,20 +55,24 @@ async def list_users():
 @app.post("/api/users/reset/{username}")
 async def reset_user_balance(username: str):
     try:
-        # Muda o status de 'pago' para 'arquivado' para zerar o saldo atual
-        col_cobrancas.update_many(
-            {"status": "pago", "criado_por": username},
-            {"$set": {"status": "arquivado", "zerado_em": datetime.now()}}
-        )
+        # Se for "SISTEMA_TOTAL", zera TUDO (inclusive vendas sem dono)
+        if username == "SISTEMA_TOTAL":
+            col_cobrancas.update_many(
+                {"status": "pago"},
+                {"$set": {"status": "arquivado", "zerado_em": datetime.now()}}
+            )
+        else:
+            col_cobrancas.update_many(
+                {"status": "pago", "criado_por": username},
+                {"$set": {"status": "arquivado", "zerado_em": datetime.now()}}
+            )
         return {"success": True}
-    except:
-        return {"success": False}
+    except: return {"success": False}
 
 @app.delete("/api/users/{user_id}")
 async def delete_user(user_id: str):
     try:
-        col_users.delete_one({"_id": ObjectId(user_id)})
-        return {"success": True}
+        col_users.delete_one({"_id": ObjectId(user_id)}); return {"success": True}
     except: return {"success": False}
 
 @app.post("/api/users/add")
@@ -89,6 +92,7 @@ async def api_login(d: dict):
 @app.get("/api/stats/{username}")
 async def get_user_stats(username: str):
     try:
+        # Se for o admin mestre, ele vê o total global
         q = {"status": "pago"} if username == "adminmaisvelho" else {"status": "pago", "criado_por": username}
         pago_list = list(col_cobrancas.find(q))
         total = sum([float(c.get("valor", 0)) for c in pago_list])
@@ -135,7 +139,7 @@ def send_welcome(message):
     if str(message.from_user.id) != ADMIN_ID: return
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton(text="📱 ABRIR PAINEL", web_app=WebAppInfo(url=WEBAPP_URL)))
-    bot.send_message(message.chat.id, "✅ *SISTEMA ON!*", parse_mode="Markdown", reply_markup=markup)
+    bot.send_message(message.chat.id, "✅ *SISTEMA ONLINE!*", parse_mode="Markdown", reply_markup=markup)
 
 @app.get("/", response_class=HTMLResponse)
 async def get_dashboard():
@@ -147,7 +151,7 @@ def run_bot():
 @app.on_event("startup")
 def startup():
     threading.Thread(target=run_bot, daemon=True).start()
-    try: bot.send_message(ADMIN_ID, "🚀 *TUDO PRONTO!* Agora você pode zerar saldos de parceiros.")
+    try: bot.send_message(ADMIN_ID, "🚀 *SISTEMA OPERACIONAL!* Agora você pode limpar o saldo global.")
     except: pass
 
 if __name__ == "__main__":
