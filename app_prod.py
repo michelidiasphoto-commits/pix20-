@@ -20,10 +20,11 @@ bot = telebot.TeleBot(TOKEN)
 
 # --- MONGODB ---
 try:
-    client = MongoClient("mongodb+srv://michelidiasphoto_db_user:lVN70gFWTgsecLTw@cluster0.eb7vf2i.mongodb.net/?appName=Cluster0")
+    client = MongoClient("mongodb+srv://michelidiasphoto_db_user:lVN70gFWTgsecLTw@cluster0.eb7vf2i.mongodb.net/?appName=Cluster0", serverSelectionTimeoutMS=5000)
     db = client["sigilopay_db"]
     col_cobrancas = db["cobrancas"]; col_users = db["users"]; col_saques = db["saques"]
-except: pass
+except Exception as e:
+    print(f"Erro Conexão MongoDB: {e}")
 
 class PixReq(BaseModel): valor: float; username: str
 class SaqueReq(BaseModel): valor: float; username: str; pix_key: str
@@ -38,35 +39,51 @@ def gerar_cpf_real():
 
 # --- ROTAS DO PAINEL ---
 @app.get("/", response_class=HTMLResponse)
-@app.get("/painel", response_class=HTMLResponse)
 async def get_dashboard():
     try:
         with open("dashboard.html", "r", encoding="utf-8") as f: return f.read()
     except: return "dashboard.html ausente."
 
-# --- API DE DADOS ---
+# --- API DE GESTÃO (COM PROTEÇÃO CONTRA ERRO 500) ---
+@app.get("/api/users")
+async def list_users():
+    try:
+        users_raw = list(col_users.find({}, {"_id": 0}))
+        processed_users = []
+        for u in users_raw:
+            try:
+                name = u.get("username", "Desconhecido")
+                # Filtra cobranças pagas desse usuário com segurança
+                pago_u = list(col_cobrancas.find({"status": "pago", "criado_por": name}))
+                total_v = sum([float(c.get("valor", 0)) for c in pago_u])
+                
+                u['total_vendas'] = total_v
+                u['saldo_disponivel'] = total_v * 0.8
+                u['username'] = name
+                processed_users.append(u)
+            except Exception as e:
+                print(f"Erro ao processar usuário {u}: {e}")
+                continue # Pula o usuário com erro e vai para o próximo
+        return processed_users
+    except Exception as e:
+        print(f"Erro Fatal na Lista: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/login")
 async def api_login(d: dict):
     u = d.get("username"); p = d.get("password")
     if u == "adminmaisvelho" and p == "maisvelhoadmin": return {"success": True, "role": "admin"}
-    if col_users.find_one({"username": u, "password": p}): return {"success": True, "role": "user"}
-    return {"success": False}
+    user = col_users.find_one({"username": u, "password": p})
+    return {"success": True, "role": "user"} if user else {"success": False}
 
 @app.get("/api/stats/{username}")
 async def get_user_stats(username: str):
-    q = {"status": "pago"} if username == "adminmaisvelho" else {"status": "pago", "criado_por": username}
-    pago_list = list(col_cobrancas.find(q))
-    total = sum([c.get("valor", 0) for c in pago_list])
-    return {"pago": len(pago_list), "total": total, "saldo": total * 0.8}
-
-@app.get("/api/users")
-async def list_users():
-    users = list(col_users.find({}, {"_id": 0}))
-    for u in users:
-        pago_u = list(col_cobrancas.find({"status": "pago", "criado_por": u['username']}))
-        u['total_vendas'] = sum([c.get("valor", 0) for c in pago_u])
-        u['saldo_disponivel'] = u['total_vendas'] * 0.8
-    return users
+    try:
+        q = {"status": "pago"} if username == "adminmaisvelho" else {"status": "pago", "criado_por": username}
+        pago_list = list(col_cobrancas.find(q))
+        total = sum([float(c.get("valor", 0)) for c in pago_list])
+        return {"pago": len(pago_list), "total": total, "saldo": total * 0.8}
+    except: return {"pago": 0, "total": 0, "saldo": 0}
 
 @app.post("/api/users/add")
 async def add_user(user: UserData):
@@ -109,17 +126,9 @@ async def webhook_sigilopay(request: Request):
         if data.get("status") in ["pago", "paid"]:
             col_cobrancas.update_one({"transaction_id": tid}, {"$set": {"status": "pago", "pago_em": datetime.now()}})
             c = col_cobrancas.find_one({"transaction_id": tid})
-            if c: bot.send_message(ADMIN_ID, f"💰 *PAGO!* Por: `{c.get('criado_por')}`", parse_mode="Markdown")
+            if c: bot.send_message(ADMIN_ID, f"💰 *PAGO!* De: `{c.get('criado_por')}`", parse_mode="Markdown")
         return {"success": True}
     except: return {"success": False}
-
-# --- BOT TELEGRAM ---
-@bot.message_handler(commands=['start', 'painel'])
-def send_welcome(message):
-    if str(message.from_user.id) != ADMIN_ID: return
-    markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton(text="📱 ABRIR PAINEL", web_app=WebAppInfo(url=WEBAPP_URL)))
-    bot.send_message(message.chat.id, "✅ *SISTEMA ON!*", parse_mode="Markdown", reply_markup=markup)
 
 def run_bot():
     bot.remove_webhook(); time.sleep(2); bot.infinity_polling(timeout=60)
@@ -127,7 +136,7 @@ def run_bot():
 @app.on_event("startup")
 def startup():
     threading.Thread(target=run_bot, daemon=True).start()
-    try: bot.send_message(ADMIN_ID, "🚀 *TUDO PRONTO!* Gestão e Saques reativados.")
+    try: bot.send_message(ADMIN_ID, "🚀 *PAINEL ESTABILIZADO!* Pode abrir a Gestão.")
     except: pass
 
 if __name__ == "__main__":
