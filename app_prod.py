@@ -36,7 +36,7 @@ def gerar_cpf_real():
         c.append(11 - v if v > 1 else 0)
     return "".join(map(str, c))
 
-# --- API E GESTÃO (COM ID REAL) ---
+# --- API DE GESTÃO ---
 @app.get("/api/users")
 async def list_users():
     try:
@@ -44,27 +44,33 @@ async def list_users():
         res = []
         for u in users_raw:
             try:
-                uid = str(u["_id"]) # Pega o ID único do banco
-                name = u.get("username", "Desconhecido")
+                uid = str(u["_id"]); name = u.get("username", "Desconhecido")
+                # SÓ CONTA O QUE ESTÁ COM STATUS 'pago'
                 pago_u = list(col_cobrancas.find({"status": "pago", "criado_por": name}))
                 total_v = sum([float(c.get("valor", 0)) for c in pago_u])
-                res.append({
-                    "id": uid, 
-                    "username": name, 
-                    "total_vendas": total_v, 
-                    "saldo_disponivel": total_v * 0.8
-                })
+                res.append({"id": uid, "username": name, "total_vendas": total_v, "saldo_disponivel": total_v * 0.8})
             except: continue
         return res
     except: return []
+
+@app.post("/api/users/reset/{username}")
+async def reset_user_balance(username: str):
+    try:
+        # Muda o status de 'pago' para 'arquivado' para zerar o saldo atual
+        col_cobrancas.update_many(
+            {"status": "pago", "criado_por": username},
+            {"$set": {"status": "arquivado", "zerado_em": datetime.now()}}
+        )
+        return {"success": True}
+    except:
+        return {"success": False}
 
 @app.delete("/api/users/{user_id}")
 async def delete_user(user_id: str):
     try:
         col_users.delete_one({"_id": ObjectId(user_id)})
         return {"success": True}
-    except:
-        return {"success": False}
+    except: return {"success": False}
 
 @app.post("/api/users/add")
 async def add_user(user: UserData):
@@ -82,10 +88,12 @@ async def api_login(d: dict):
 
 @app.get("/api/stats/{username}")
 async def get_user_stats(username: str):
-    q = {"status": "pago"} if username == "adminmaisvelho" else {"status": "pago", "criado_por": username}
-    pago_list = list(col_cobrancas.find(q))
-    total = sum([float(c.get("valor", 0)) for c in pago_list])
-    return {"pago": len(pago_list), "total": total, "saldo": total * 0.8}
+    try:
+        q = {"status": "pago"} if username == "adminmaisvelho" else {"status": "pago", "criado_por": username}
+        pago_list = list(col_cobrancas.find(q))
+        total = sum([float(c.get("valor", 0)) for c in pago_list])
+        return {"pago": len(pago_list), "total": total, "saldo": total * 0.8}
+    except: return {"pago": 0, "total": 0, "saldo": 0}
 
 @app.post("/api/saque")
 async def api_saque(req: SaqueReq):
@@ -98,8 +106,7 @@ async def api_saque(req: SaqueReq):
 @app.post("/api/gerar_pix_web")
 async def gerar_pix_web(req: PixReq):
     ident = f"web_{int(time.time())}"
-    str_cpf = gerar_cpf_real()
-    payload = {"identifier": ident, "amount": float(req.valor), "callbackUrl": f"{WEBAPP_URL}/webhook", "client": {"name": "Web VIP", "email": "w@e.com", "phone": "11999999999", "document": str_cpf}}
+    payload = {"identifier": ident, "amount": float(req.valor), "callbackUrl": f"{WEBAPP_URL}/webhook", "client": {"name": "Web VIP", "email": "w@e.com", "phone": "11999999999", "document": gerar_cpf_real()}}
     headers = {"x-public-key": "laispereiraphoto_2s0vatrdx6coy3pp", "x-secret-key": "kqkjdw66o0hv37gz2w4n15m5thp0w2jv6txe1k4ss7354169260wdpqegta7en2v", "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=30) as cl:
         try:
@@ -128,7 +135,7 @@ def send_welcome(message):
     if str(message.from_user.id) != ADMIN_ID: return
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton(text="📱 ABRIR PAINEL", web_app=WebAppInfo(url=WEBAPP_URL)))
-    bot.send_message(message.chat.id, "✅ *SISTEMA OPERACIONAL!*", parse_mode="Markdown", reply_markup=markup)
+    bot.send_message(message.chat.id, "✅ *SISTEMA ON!*", parse_mode="Markdown", reply_markup=markup)
 
 @app.get("/", response_class=HTMLResponse)
 async def get_dashboard():
@@ -140,7 +147,7 @@ def run_bot():
 @app.on_event("startup")
 def startup():
     threading.Thread(target=run_bot, daemon=True).start()
-    try: bot.send_message(ADMIN_ID, "🚀 *SISTEMA PRONTO!* Agora você pode remover qualquer usuário.")
+    try: bot.send_message(ADMIN_ID, "🚀 *TUDO PRONTO!* Agora você pode zerar saldos de parceiros.")
     except: pass
 
 if __name__ == "__main__":

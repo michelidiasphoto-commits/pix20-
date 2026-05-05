@@ -31,6 +31,8 @@
         .user-item { display: flex; flex-direction: column; padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); gap: 5px; }
         .user-info { display: flex; justify-content: space-between; align-items: center; }
         .user-stats { font-size: 11px; opacity: 0.7; color: var(--accent); }
+        .btn-group { display: flex; gap: 5px; }
+        .btn-mini { border: none; padding: 6px 10px; border-radius: 6px; font-size: 10px; cursor: pointer; color: white; font-weight: 600; }
         #result-area { display: none; text-align: center; margin-top: 20px; }
         #qr-image { width: 220px; height: 220px; background: white; margin: 10px auto; border-radius: 12px; }
     </style>
@@ -132,12 +134,22 @@
                     <div class="user-item">
                         <div class="user-info">
                             <strong>👤 ${u.username}</strong>
-                            <button style="background:#ef4444; color:white; border:none; padding:4px 8px; border-radius:5px; font-size:10px;" onclick="delUser('${u.id}')">Remover</button>
+                            <div class="btn-group">
+                                <button class="btn-mini" style="background:#3b82f6;" onclick="resetSaldo('${u.username}')">Zerar Saldo</button>
+                                <button class="btn-mini" style="background:#ef4444;" onclick="delUser('${u.id}')">Remover</button>
+                            </div>
                         </div>
-                        <div class="user-stats">Vendas: R$ ${u.total_vendas.toFixed(2)} | Saldo: R$ ${u.saldo_disponivel.toFixed(2)}</div>
+                        <div class="user-stats">Vendas Atuais: R$ ${u.total_vendas.toFixed(2)} | Saldo: R$ ${u.saldo_disponivel.toFixed(2)}</div>
                     </div>
                 `).join('') || "Nenhum parceiro.";
             } catch(e) { console.error(e); }
+        }
+
+        async function resetSaldo(name) {
+            if(!confirm(`Deseja ZERAR o saldo atual de ${name}?`)) return;
+            const r = await fetch(`/api/users/reset/${name}`, { method: 'POST' });
+            const d = await r.json();
+            if(d.success) { alert(`Saldo de ${name} zerado com sucesso!`); loadUsers(); }
         }
 
         async function addUser() {
@@ -149,22 +161,20 @@
         }
 
         async function delUser(id) {
-            if(!confirm("Deseja remover permanentemente?")) return;
+            if(!confirm("Remover permanentemente?")) return;
             const r = await fetch(`/api/users/${id}`, { method: 'DELETE' });
             const d = await r.json();
             if(d.success) loadUsers();
-            else alert("Erro ao remover.");
         }
 
         async function solicitarSaque() {
             if(currentSaldo <= 0) return alert("Sem saldo.");
-            const valor = prompt(`Valor para sacar? (Máx: R$ ${currentSaldo.toFixed(2)})`);
+            const valor = prompt(`Quanto deseja sacar? (Máx: R$ ${currentSaldo.toFixed(2)})`);
             if(!valor || isNaN(valor) || parseFloat(valor) <= 0) return;
             const chave = prompt("Chave PIX:");
             if(!chave) return;
-            const r = await fetch('/api/saque', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({username: currentUser, valor: parseFloat(valor), pix_key: chave}) });
-            const d = await r.json();
-            if(d.success) alert("🚀 Solicitação enviada!");
+            await fetch('/api/saque', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({username: currentUser, valor: parseFloat(valor), pix_key: chave}) });
+            alert("🚀 Pedido enviado!");
         }
 
         async function gerar() {
