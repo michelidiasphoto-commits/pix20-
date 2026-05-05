@@ -69,7 +69,7 @@
                     <div id="pix-code" style="display:none;"></div>
                 </div>
             </div>
-            <button onclick="logout()" style="width:100%; background:none; border:none; color:#ef4444; margin-top:20px; font-size:11px;">Encerrar Sessão</button>
+            <button onclick="logout()" style="width:100%; background:none; border:none; color:#ef4444; margin-top:20px; font-size:11px;">Sair</button>
         </div>
 
         <div id="users" class="section">
@@ -91,24 +91,18 @@
         let currentSaldo = 0;
 
         async function login() {
-            try {
-                const u = document.getElementById('user').value;
-                const p = document.getElementById('pass').value;
-                const r = await fetch('/api/login', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({username: u, password: p})
-                });
-                const d = await r.json();
-                if(d.success) {
-                    currentUser = u;
-                    document.getElementById('login-screen').style.display = 'none';
-                    document.getElementById('main-content').style.display = 'block';
-                    document.getElementById('saque-bar').style.display = 'block';
-                    if(d.role === 'admin') document.getElementById('admin-tab').style.display = 'block';
-                    loadStats();
-                } else { alert("Dados incorretos!"); }
-            } catch(e) { alert("Erro ao logar: " + e.message); }
+            const u = document.getElementById('user').value;
+            const p = document.getElementById('pass').value;
+            const r = await fetch('/api/login', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({username: u, password: p}) });
+            const d = await r.json();
+            if(d.success) {
+                currentUser = u;
+                document.getElementById('login-screen').style.display = 'none';
+                document.getElementById('main-content').style.display = 'block';
+                document.getElementById('saque-bar').style.display = 'block';
+                if(d.role === 'admin') document.getElementById('admin-tab').style.display = 'block';
+                loadStats();
+            } else { alert("Dados incorretos!"); }
         }
 
         function logout() { location.reload(); }
@@ -122,96 +116,70 @@
         }
 
         async function loadStats() {
-            try {
-                const r = await fetch(`/api/stats/${currentUser}`);
-                const d = await r.json();
-                currentSaldo = d.saldo || 0;
-                document.getElementById('stat-total').innerText = `R$ ${(d.total || 0).toFixed(2)}`;
-                document.getElementById('stat-saldo').innerText = `R$ ${currentSaldo.toFixed(2)}`;
-            } catch(e) { console.error("Erro stats:", e); }
+            const r = await fetch(`/api/stats/${currentUser}`);
+            const d = await r.json();
+            currentSaldo = d.saldo || 0;
+            document.getElementById('stat-total').innerText = `R$ ${(d.total || 0).toFixed(2)}`;
+            document.getElementById('stat-saldo').innerText = `R$ ${currentSaldo.toFixed(2)}`;
         }
 
         async function loadUsers() {
-            const list = document.getElementById('user-list');
-            list.innerHTML = "🔄 Carregando parceiros...";
             try {
                 const r = await fetch('/api/users');
-                if(!r.ok) throw new Error("Servidor respondeu com erro " + r.status);
                 const users = await r.json();
-                if(!Array.isArray(users)) throw new Error("Resposta do servidor não é uma lista.");
-                
+                const list = document.getElementById('user-list');
                 list.innerHTML = users.map(u => `
                     <div class="user-item">
                         <div class="user-info">
-                            <strong>👤 ${u.username || 'Sem nome'}</strong>
-                            <button style="background:#ef4444; color:white; border:none; padding:4px 8px; border-radius:5px; font-size:10px;" onclick="delUser('${u.username}')">Remover</button>
+                            <strong>👤 ${u.username}</strong>
+                            <button style="background:#ef4444; color:white; border:none; padding:4px 8px; border-radius:5px; font-size:10px;" onclick="delUser('${u.id}')">Remover</button>
                         </div>
-                        <div class="user-stats">Vendas: R$ ${(u.total_vendas || 0).toFixed(2)} | Saldo: R$ ${(u.saldo_disponivel || 0).toFixed(2)}</div>
+                        <div class="user-stats">Vendas: R$ ${u.total_vendas.toFixed(2)} | Saldo: R$ ${u.saldo_disponivel.toFixed(2)}</div>
                     </div>
-                `).join('') || "Nenhum parceiro ativo.";
-            } catch(e) { 
-                list.innerHTML = `<div style="color:#ef4444; font-size:12px;">❌ Erro ao carregar: ${e.message}</div>`;
-                alert("Falha na Gestão: " + e.message);
-            }
-        }
-
-        async function solicitarSaque() {
-            if(currentSaldo <= 0) return alert("Sem saldo disponível.");
-            const valor = prompt(`Valor para sacar? (Máx: R$ ${currentSaldo.toFixed(2)})`);
-            if(!valor || isNaN(valor) || parseFloat(valor) <= 0) return;
-            if(parseFloat(valor) > currentSaldo) return alert("Saldo insuficiente!");
-            const chave = prompt("Chave PIX:");
-            if(!chave) return;
-
-            try {
-                const r = await fetch('/api/saque', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({username: currentUser, valor: parseFloat(valor), pix_key: chave})
-                });
-                const d = await r.json();
-                if(d.success) alert("🚀 Pedido enviado!");
-            } catch(e) { alert("Erro ao pedir saque."); }
+                `).join('') || "Nenhum parceiro.";
+            } catch(e) { console.error(e); }
         }
 
         async function addUser() {
             const u = document.getElementById('new-user').value;
             const p = document.getElementById('new-pass').value;
             if(!u || !p) return;
-            try {
-                await fetch('/api/users/add', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({username: u, password: p}) });
-                loadUsers();
-            } catch(e) { alert("Erro ao adicionar."); }
+            await fetch('/api/users/add', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({username: u, password: p}) });
+            loadUsers();
         }
 
-        async function delUser(u) {
-            if(!confirm("Remover?")) return;
-            try {
-                await fetch(`/api/users/${u}`, { method: 'DELETE' });
-                loadUsers();
-            } catch(e) { alert("Erro ao deletar."); }
+        async function delUser(id) {
+            if(!confirm("Deseja remover permanentemente?")) return;
+            const r = await fetch(`/api/users/${id}`, { method: 'DELETE' });
+            const d = await r.json();
+            if(d.success) loadUsers();
+            else alert("Erro ao remover.");
+        }
+
+        async function solicitarSaque() {
+            if(currentSaldo <= 0) return alert("Sem saldo.");
+            const valor = prompt(`Valor para sacar? (Máx: R$ ${currentSaldo.toFixed(2)})`);
+            if(!valor || isNaN(valor) || parseFloat(valor) <= 0) return;
+            const chave = prompt("Chave PIX:");
+            if(!chave) return;
+            const r = await fetch('/api/saque', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({username: currentUser, valor: parseFloat(valor), pix_key: chave}) });
+            const d = await r.json();
+            if(d.success) alert("🚀 Solicitação enviada!");
         }
 
         async function gerar() {
             const val = document.getElementById('amount').value;
             if(!val) return;
-            try {
-                const r = await fetch('/api/gerar_pix_web', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({valor: parseFloat(val), username: currentUser})
+            const r = await fetch('/api/gerar_pix_web', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({valor: parseFloat(val), username: currentUser}) });
+            const d = await r.json();
+            if(d.success) {
+                document.getElementById('pix-code').innerText = d.qr_text;
+                QRCode.toDataURL(d.qr_text, {width: 400, margin: 2}, (err, url) => {
+                    document.getElementById('qr-image').src = url;
+                    document.getElementById('result-area').style.display = 'block';
                 });
-                const d = await r.json();
-                if(d.success) {
-                    document.getElementById('pix-code').innerText = d.qr_text;
-                    QRCode.toDataURL(d.qr_text, {width: 400, margin: 2}, (err, url) => {
-                        document.getElementById('qr-image').src = url;
-                        document.getElementById('result-area').style.display = 'block';
-                    });
-                } else { alert("Erro SigiloPay: " + (d.message || "Tente novamente")); }
-            } catch(e) { alert("Erro ao gerar PIX."); }
+            }
         }
-
         function copy() { navigator.clipboard.writeText(document.getElementById('pix-code').innerText); alert("Copiado!"); }
     </script>
 </body>
