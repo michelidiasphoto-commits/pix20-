@@ -20,11 +20,9 @@ bot = telebot.TeleBot(TOKEN)
 
 # --- MONGODB ---
 try:
-    client = MongoClient("mongodb+srv://michelidiasphoto_db_user:lVN70gFWTgsecLTw@cluster0.eb7vf2i.mongodb.net/?appName=Cluster0", serverSelectionTimeoutMS=5000)
-    db = client["sigilopay_db"]
-    col_cobrancas = db["cobrancas"]; col_users = db["users"]; col_saques = db["saques"]
-except Exception as e:
-    print(f"Erro Conexão MongoDB: {e}")
+    client = MongoClient("mongodb+srv://michelidiasphoto_db_user:lVN70gFWTgsecLTw@cluster0.eb7vf2i.mongodb.net/?appName=Cluster0")
+    db = client["sigilopay_db"]; col_cobrancas = db["cobrancas"]; col_users = db["users"]; col_saques = db["saques"]
+except: pass
 
 class PixReq(BaseModel): valor: float; username: str
 class SaqueReq(BaseModel): valor: float; username: str; pix_key: str
@@ -37,37 +35,22 @@ def gerar_cpf_real():
         c.append(11 - v if v > 1 else 0)
     return "".join(map(str, c))
 
-# --- ROTAS DO PAINEL ---
-@app.get("/", response_class=HTMLResponse)
-async def get_dashboard():
-    try:
-        with open("dashboard.html", "r", encoding="utf-8") as f: return f.read()
-    except: return "dashboard.html ausente."
-
-# --- API DE GESTÃO (COM PROTEÇÃO CONTRA ERRO 500) ---
+# --- API E GESTÃO ---
 @app.get("/api/users")
 async def list_users():
     try:
         users_raw = list(col_users.find({}, {"_id": 0}))
-        processed_users = []
+        res = []
         for u in users_raw:
             try:
                 name = u.get("username", "Desconhecido")
-                # Filtra cobranças pagas desse usuário com segurança
                 pago_u = list(col_cobrancas.find({"status": "pago", "criado_por": name}))
                 total_v = sum([float(c.get("valor", 0)) for c in pago_u])
-                
-                u['total_vendas'] = total_v
-                u['saldo_disponivel'] = total_v * 0.8
-                u['username'] = name
-                processed_users.append(u)
-            except Exception as e:
-                print(f"Erro ao processar usuário {u}: {e}")
-                continue # Pula o usuário com erro e vai para o próximo
-        return processed_users
-    except Exception as e:
-        print(f"Erro Fatal na Lista: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+                u['total_vendas'] = total_v; u['saldo_disponivel'] = total_v * 0.8; u['username'] = name
+                res.append(u)
+            except: continue
+        return res
+    except: return []
 
 @app.post("/api/login")
 async def api_login(d: dict):
@@ -78,30 +61,10 @@ async def api_login(d: dict):
 
 @app.get("/api/stats/{username}")
 async def get_user_stats(username: str):
-    try:
-        q = {"status": "pago"} if username == "adminmaisvelho" else {"status": "pago", "criado_por": username}
-        pago_list = list(col_cobrancas.find(q))
-        total = sum([float(c.get("valor", 0)) for c in pago_list])
-        return {"pago": len(pago_list), "total": total, "saldo": total * 0.8}
-    except: return {"pago": 0, "total": 0, "saldo": 0}
-
-@app.post("/api/users/add")
-async def add_user(user: UserData):
-    if col_users.find_one({"username": user.username}): return {"success": False}
-    col_users.insert_one({"username": user.username, "password": user.password, "criado_em": datetime.now()})
-    return {"success": True}
-
-@app.delete("/api/users/{username}")
-async def delete_user(username: str):
-    col_users.delete_one({"username": username}); return {"success": True}
-
-@app.post("/api/saque")
-async def api_saque(req: SaqueReq):
-    try:
-        col_saques.insert_one({"username": req.username, "valor": req.valor, "chave_pix": req.pix_key, "data": datetime.now(), "status": "pendente"})
-        bot.send_message(ADMIN_ID, f"💸 *SAQUE:* `{req.username}` | `R$ {req.valor:.2f}` | `{req.pix_key}`", parse_mode="Markdown")
-        return {"success": True}
-    except: return {"success": False}
+    q = {"status": "pago"} if username == "adminmaisvelho" else {"status": "pago", "criado_por": username}
+    pago_list = list(col_cobrancas.find(q))
+    total = sum([float(c.get("valor", 0)) for c in pago_list])
+    return {"pago": len(pago_list), "total": total, "saldo": total * 0.8}
 
 @app.post("/api/gerar_pix_web")
 async def gerar_pix_web(req: PixReq):
@@ -119,24 +82,33 @@ async def gerar_pix_web(req: PixReq):
             return {"success": False}
         except: return {"success": False}
 
-@app.post("/webhook")
-async def webhook_sigilopay(request: Request):
-    try:
-        data = await request.json(); tid = data.get("identifier") or data.get("transactionId")
-        if data.get("status") in ["pago", "paid"]:
-            col_cobrancas.update_one({"transaction_id": tid}, {"$set": {"status": "pago", "pago_em": datetime.now()}})
-            c = col_cobrancas.find_one({"transaction_id": tid})
-            if c: bot.send_message(ADMIN_ID, f"💰 *PAGO!* De: `{c.get('criado_por')}`", parse_mode="Markdown")
-        return {"success": True}
-    except: return {"success": False}
+# --- BOT TELEGRAM (MODO DIAGNÓSTICO) ---
+@bot.message_handler(commands=['start', 'painel'])
+def send_welcome(message):
+    uid = str(message.from_user.id)
+    print(f"✅ Bot ouviu um comando de {uid}")
+    if uid != ADMIN_ID:
+        bot.send_message(message.chat.id, f"🚫 ID {uid} não autorizado.")
+        return
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton(text="📱 ABRIR PAINEL", web_app=WebAppInfo(url=WEBAPP_URL)))
+    bot.send_message(message.chat.id, "✅ *SISTEMA REATIVADO!*", parse_mode="Markdown", reply_markup=markup)
+
+@app.get("/", response_class=HTMLResponse)
+async def get_dashboard():
+    with open("dashboard.html", "r", encoding="utf-8") as f: return f.read()
 
 def run_bot():
-    bot.remove_webhook(); time.sleep(2); bot.infinity_polling(timeout=60)
+    print("🧹 Resetando conexões do Telegram...")
+    bot.remove_webhook()
+    time.sleep(2)
+    print("🤖 Bot ouvindo...")
+    bot.infinity_polling(timeout=60, long_polling_timeout=60)
 
 @app.on_event("startup")
 def startup():
     threading.Thread(target=run_bot, daemon=True).start()
-    try: bot.send_message(ADMIN_ID, "🚀 *PAINEL ESTABILIZADO!* Pode abrir a Gestão.")
+    try: bot.send_message(ADMIN_ID, "🟢 *ROBÔ ONLINE!* Pode testar o /start agora.")
     except: pass
 
 if __name__ == "__main__":
