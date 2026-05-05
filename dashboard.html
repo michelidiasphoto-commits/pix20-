@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Painel VIP Pix</title>
+    <title>Painel VIP Financeiro</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
@@ -11,80 +11,70 @@
         :root { --bg: #0f172a; --card: rgba(30, 41, 59, 0.9); --accent: #22c55e; --text: #f8fafc; }
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Outfit', sans-serif; -webkit-tap-highlight-color: transparent; }
         body { background: var(--bg); color: var(--text); padding: 10px; }
-        
         #login-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 90vh; }
         .login-card { background: var(--card); padding: 30px; border-radius: 24px; width: 100%; max-width: 340px; border: 1px solid rgba(255,255,255,0.1); }
-        
         #main-content { display: none; }
         .nav-tabs { display: flex; gap: 10px; margin-bottom: 20px; background: rgba(0,0,0,0.2); padding: 5px; border-radius: 12px; }
-        .nav-item { flex: 1; text-align: center; padding: 12px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+        .nav-item { flex: 1; text-align: center; padding: 12px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; }
         .nav-item.active { background: var(--accent); color: #052e16; }
-
         .section { display: none; }
         .section.active { display: block; }
-
         .card { background: var(--card); padding: 20px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 15px; }
-        input { width: 100%; background: #000; border: 1px solid #334155; padding: 14px; border-radius: 12px; color: white; margin-bottom: 12px; font-size: 15px; outline: none; }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+        .stat-card { background: rgba(0,0,0,0.3); padding: 15px; border-radius: 15px; text-align: center; border: 1px solid rgba(255,255,255,0.05); }
+        .stat-card span { font-size: 10px; opacity: 0.6; display: block; margin-bottom: 5px; }
+        .stat-card strong { font-size: 16px; color: var(--accent); }
+        input { width: 100%; background: #000; border: 1px solid #334155; padding: 14px; border-radius: 12px; color: white; margin-bottom: 10px; font-size: 15px; }
         .btn { width: 100%; background: var(--accent); color: #052e16; border: none; padding: 15px; border-radius: 12px; font-weight: 700; cursor: pointer; }
-        
-        .remember-box { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 15px; opacity: 0.8; }
-        .remember-box input { width: auto; margin: 0; cursor: pointer; }
-
-        .user-item { display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); }
-        .del-btn { background: #ef4444; color: white; border: none; padding: 5px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; }
-
+        .user-item { display: flex; flex-direction: column; padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); gap: 5px; }
+        .user-info { display: flex; justify-content: space-between; align-items: center; }
+        .user-stats { font-size: 11px; opacity: 0.7; color: var(--accent); }
         #result-area { display: none; text-align: center; margin-top: 20px; }
-        #qr-image { width: 220px; height: 220px; background: white; margin: 10px auto; border-radius: 12px; display: block; }
-        .loader { display: none; color: var(--accent); margin: 15px 0; font-weight: 600; text-align: center; }
+        #qr-image { width: 220px; height: 220px; background: white; margin: 10px auto; border-radius: 12px; }
     </style>
 </head>
 <body>
     <div id="login-screen">
         <div class="login-card">
-            <h2 style="text-align: center; margin-bottom: 20px;">🔐 Acesso VIP</h2>
+            <h2 style="text-align: center; margin-bottom: 20px;">🔐 Painel Financeiro</h2>
             <input type="text" id="user" placeholder="Usuário">
             <input type="password" id="pass" placeholder="Senha">
-            <div class="remember-box">
-                <input type="checkbox" id="remember">
-                <label for="remember">Lembrar acesso</label>
-            </div>
-            <button class="btn" id="login-btn" onclick="login()">ENTRAR</button>
+            <button class="btn" onclick="login()">ENTRAR</button>
         </div>
     </div>
 
     <div id="main-content">
         <div class="nav-tabs">
-            <div class="nav-item active" onclick="switchTab('pix', this)">💰 GERAR PIX</div>
-            <div id="admin-tab" class="nav-item" style="display:none;" onclick="switchTab('users', this)">👥 USUÁRIOS</div>
+            <div class="nav-item active" onclick="switchTab('pix', this)">💰 MEU SALDO</div>
+            <div id="admin-tab" class="nav-item" style="display:none;" onclick="switchTab('users', this)">👥 GESTÃO</div>
         </div>
 
         <div id="pix" class="section active">
+            <div class="stats-grid">
+                <div class="stat-card"><span>TOTAL VENDIDO</span><strong id="stat-total">R$ 0,00</strong></div>
+                <div class="stat-card"><span>SALDO (80%)</span><strong id="stat-saldo">R$ 0,00</strong></div>
+            </div>
             <div class="card">
-                <div style="display:flex; justify-content:space-between; margin-bottom:15px;">
-                    <span style="font-size:12px; opacity:0.6;">Painel Online</span>
-                    <button onclick="logout()" style="background:none; border:none; color:#ef4444; font-size:11px; cursor:pointer;">Sair / Deslogar</button>
-                </div>
-                <input type="number" id="amount" placeholder="Valor (R$)">
-                <button class="btn" id="btn-gen" onclick="gerar()">GERAR PIX AGORA</button>
-                <div class="loader" id="loader">Gerando seu PIX...</div>
-
+                <input type="number" id="amount" placeholder="Valor do PIX (R$)">
+                <button class="btn" onclick="gerar()">GERAR COBRANÇA</button>
                 <div id="result-area">
                     <img id="qr-image" src="">
                     <button class="btn" style="background:#334155; color:white; margin-top:10px;" onclick="copy()">COPIAR PIX</button>
                     <div id="pix-code" style="display:none;"></div>
                 </div>
             </div>
+            <button onclick="logout()" style="width:100%; background:none; border:none; color:#ef4444; margin-top:10px; font-size:12px;">Deslogar do Sistema</button>
         </div>
 
         <div id="users" class="section">
             <div class="card">
-                <h4 style="margin-bottom:10px;">➕ Novo Usuário</h4>
+                <h4 style="margin-bottom:10px;">➕ Novo Parceiro</h4>
                 <input type="text" id="new-user" placeholder="Login">
                 <input type="password" id="new-pass" placeholder="Senha">
                 <button class="btn" onclick="addUser()">CRIAR ACESSO</button>
             </div>
             <div class="card">
-                <h4 style="margin-bottom:15px;">👥 Usuários Ativos</h4>
+                <h4 style="margin-bottom:15px;">👥 Parceiros Ativos</h4>
                 <div id="user-list">Carregando...</div>
             </div>
         </div>
@@ -92,53 +82,57 @@
 
     <script>
         const tg = window.Telegram.WebApp;
-        tg.expand();
+        let currentUser = "";
 
-        document.addEventListener('keypress', (e) => {
-            if(e.key === 'Enter') {
-                if(document.getElementById('login-screen').style.display !== 'none') login();
-            }
-        });
-
-        async function login(savedUser, savedPass) {
-            const u = savedUser || document.getElementById('user').value;
-            const p = savedPass || document.getElementById('pass').value;
-            try {
-                const r = await fetch('/api/login', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({username: u, password: p})
-                });
-                const d = await r.json();
-                if(d.success) {
-                    if(document.getElementById('remember').checked) {
-                        localStorage.setItem('vip_u', u);
-                        localStorage.setItem('vip_p', p);
-                    }
-                    document.getElementById('login-screen').style.display = 'none';
-                    document.getElementById('main-content').style.display = 'block';
-                    if(d.role === 'admin') {
-                        document.getElementById('admin-tab').style.display = 'block';
-                        loadUsers();
-                    }
-                } else { if(!savedUser) alert("Login inválido!"); }
-            } catch(e) { console.error(e); }
+        async function login() {
+            const u = document.getElementById('user').value;
+            const p = document.getElementById('pass').value;
+            const r = await fetch('/api/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({username: u, password: p})
+            });
+            const d = await r.json();
+            if(d.success) {
+                currentUser = u;
+                document.getElementById('login-screen').style.display = 'none';
+                document.getElementById('main-content').style.display = 'block';
+                if(d.role === 'admin') document.getElementById('admin-tab').style.display = 'block';
+                loadStats();
+            } else { alert("Login incorreto!"); }
         }
 
-        function logout() { localStorage.clear(); location.reload(); }
+        function logout() { location.reload(); }
 
         function switchTab(id, el) {
             document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
             document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
             document.getElementById(id).classList.add('active');
             el.classList.add('active');
+            if(id === 'users') loadUsers();
+            else loadStats();
+        }
+
+        async function loadStats() {
+            const r = await fetch(`/api/stats/${currentUser}`);
+            const d = await r.json();
+            document.getElementById('stat-total').innerText = `R$ ${(d.total || 0).toFixed(2)}`;
+            document.getElementById('stat-saldo').innerText = `R$ ${(d.saldo || 0).toFixed(2)}`;
         }
 
         async function loadUsers() {
             const r = await fetch('/api/users');
             const users = await r.json();
             const list = document.getElementById('user-list');
-            list.innerHTML = users.map(u => `<div class="user-item"><span>👤 ${u.username}</span><button class="del-btn" onclick="delUser('${u.username}')">Excluir</button></div>`).join('') || "Sem usuários.";
+            list.innerHTML = users.map(u => `
+                <div class="user-item">
+                    <div class="user-info">
+                        <strong>👤 ${u.username}</strong>
+                        <button style="background:#ef4444; color:white; border:none; padding:4px 8px; border-radius:5px; font-size:10px;" onclick="delUser('${u.username}')">Remover</button>
+                    </div>
+                    <div class="user-stats">Vendas: R$ ${u.total_vendas.toFixed(2)} | Saldo: R$ ${u.saldo_disponivel.toFixed(2)}</div>
+                </div>
+            `).join('') || "Nenhum parceiro.";
         }
 
         async function addUser() {
@@ -146,53 +140,33 @@
             const p = document.getElementById('new-pass').value;
             if(!u || !p) return;
             await fetch('/api/users/add', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({username: u, password: p}) });
-            alert("Criado!"); loadUsers();
+            alert("Parceiro Criado!"); loadUsers();
         }
 
         async function delUser(u) {
-            if(!confirm("Excluir?")) return;
+            if(!confirm("Deseja remover o acesso?")) return;
             await fetch(`/api/users/${u}`, { method: 'DELETE' }); loadUsers();
         }
 
         async function gerar() {
             const val = document.getElementById('amount').value;
-            if(!val) return alert("Digite um valor");
-            
-            const btn = document.getElementById('btn-gen');
-            const loader = document.getElementById('loader');
-            const res = document.getElementById('result-area');
-            
-            btn.style.display = 'none'; loader.style.display = 'block'; res.style.display = 'none';
-
-            try {
-                const r = await fetch('/api/gerar_pix_web', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({valor: parseFloat(val)})
+            if(!val) return;
+            const r = await fetch('/api/gerar_pix_web', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({valor: parseFloat(val), username: currentUser})
+            });
+            const d = await r.json();
+            if(d.success) {
+                document.getElementById('pix-code').innerText = d.qr_text;
+                QRCode.toDataURL(d.qr_text, {width: 400, margin: 2}, (err, url) => {
+                    document.getElementById('qr-image').src = url;
+                    document.getElementById('result-area').style.display = 'block';
                 });
-                const d = await r.json();
-                if(d.success) {
-                    document.getElementById('pix-code').innerText = d.qr_text;
-                    QRCode.toDataURL(d.qr_text, {width: 400, margin: 2}, (err, url) => {
-                        document.getElementById('qr-image').src = url;
-                        res.style.display = 'block';
-                        loader.style.display = 'none';
-                    });
-                } else {
-                    alert("Erro: " + (d.message || "A SigiloPay não respondeu. Verifique sua conta."));
-                    btn.style.display = 'block'; loader.style.display = 'none';
-                }
-            } catch(e) {
-                alert("Erro de conexão!");
-                btn.style.display = 'block'; loader.style.display = 'none';
             }
         }
 
-        function copy() { navigator.clipboard.writeText(document.getElementById('pix-code').innerText); tg.HapticFeedback.notificationOccurred('success'); alert("Copiado!"); }
-
-        const su = localStorage.getItem('vip_u');
-        const sp = localStorage.getItem('vip_p');
-        if(su && sp) { document.getElementById('remember').checked = true; login(su, sp); }
+        function copy() { navigator.clipboard.writeText(document.getElementById('pix-code').innerText); alert("Copiado!"); }
     </script>
 </body>
 </html>
