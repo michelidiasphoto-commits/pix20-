@@ -21,10 +21,8 @@ bot = telebot.TeleBot(TOKEN)
 # --- MONGODB ---
 try:
     MONGO_URI = "mongodb+srv://michelidiasphoto_db_user:lVN70gFWTgsecLTw@cluster0.eb7vf2i.mongodb.net/?appName=Cluster0"
-    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-    db = client["sigilopay_db"]
-    col_cobrancas = db["cobrancas"]
-    col_users = db["users"]
+    client = MongoClient(MONGO_URI); db = client["sigilopay_db"]
+    col_cobrancas = db["cobrancas"]; col_users = db["users"]
 except: pass
 
 class PixReq(BaseModel): valor: float; username: str
@@ -33,31 +31,11 @@ class UserData(BaseModel): username: str; password: str
 def gerar_cpf_real():
     c = [random.randint(0, 9) for _ in range(9)]
     for _ in range(2):
-        s = sum([(len(c) + 1 - i) * v for i, v in enumerate(c)])
-        v = 11 - (s % 11)
-        c.append(v if v < 10 else 0)
+        v = sum([(len(c) + 1 - i) * val for i, val in enumerate(c)]) % 11
+        c.append(11 - v if v > 1 else 0)
     return "".join(map(str, c))
 
-# --- BOT TELEGRAM (VERSÃO RESET) ---
-
-# Handler Universal para ver se ele está ouvindo QUALQUER coisa
-@bot.message_handler(func=lambda m: True)
-def echo_all(message):
-    uid = str(message.from_user.id)
-    print(f"📩 MENSAGEM RECEBIDA DE {uid}: {message.text}")
-    
-    if message.text in ['/start', '/painel']:
-        markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton(text="📱 ABRIR PAINEL", web_app=WebAppInfo(url=WEBAPP_URL)))
-        bot.send_message(message.chat.id, "✅ *SISTEMA REESTABELECIDO!*\n\nAperte no botão abaixo:", parse_mode="Markdown", reply_markup=markup)
-    else:
-        bot.reply_to(message, f"Olá! Eu recebi sua mensagem: {message.text}. Seu ID é {uid}")
-
-# --- API E WEBHOOK ---
-@app.get("/", response_class=HTMLResponse)
-async def get_dashboard():
-    with open("dashboard.html", "r", encoding="utf-8") as f: return f.read()
-
+# --- LOGIN E GESTÃO ---
 @app.post("/api/login")
 async def api_login(d: dict):
     u = d.get("username"); p = d.get("password")
@@ -91,22 +69,45 @@ async def add_user(user: UserData):
 async def delete_user(username: str):
     col_users.delete_one({"username": username}); return {"success": True}
 
+# --- GERAÇÃO DE PIX (RECEITA MESTRA) ---
 @app.post("/api/gerar_pix_web")
 async def gerar_pix_web(req: PixReq):
     ident = f"web_{int(time.time())}"
     str_cpf = gerar_cpf_real()
-    payload = {"identifier": ident, "amount": round(req.valor, 2), "callbackUrl": f"{WEBAPP_URL}/webhook", "client": {"name": "Web VIP", "email": "w@e.com", "phone": "119", "document": str_cpf}, "customer": {"name": "Web VIP", "email": "w@e.com", "phone": "119", "document": str_cpf}}
-    headers = {"x-public-key": "laispereiraphoto_2s0vatrdx6coy3pp", "x-secret-key": "kqkjdw66o0hv37gz2w4n15m5thp0w2jv6txe1k4ss7354169260wdpqegta7en2v", "Content-Type": "application/json"}
+    payload = {
+        "identifier": ident,
+        "amount": round(req.valor, 2),
+        "callbackUrl": f"{WEBAPP_URL}/webhook",
+        "client": {"name": "Web VIP", "email": "w@e.com", "phone": "11999999999", "document": str_cpf}
+    }
+    headers = {
+        "x-public-key": "laispereiraphoto_2s0vatrdx6coy3pp",
+        "x-secret-key": "kqkjdw66o0hv37gz2w4n15m5thp0w2jv6txe1k4ss7354169260wdpqegta7en2v",
+        "Content-Type": "application/json"
+    }
     async with httpx.AsyncClient(timeout=30) as cl:
         try:
             resp = await cl.post("https://app.sigilopay.com.br/api/v1/gateway/pix/receive", json=payload, headers=headers)
-            pix = resp.json().get("pix") or resp.json().get("order", {}).get("pix") or {}
-            qrt = pix.get("code") or pix.get("payload") or ""
+            data = resp.json()
+            pix = data.get("pix") or data.get("order", {}).get("pix") or data.get("data", {}).get("pix") or {}
+            qrt = pix.get("code") or pix.get("payload") or pix.get("qrCodeText") or data.get("qrcode") or ""
             if qrt:
                 col_cobrancas.insert_one({"transaction_id": ident, "valor": req.valor, "status": "aguardando", "criado_por": req.username, "criado_em": datetime.now()})
                 return {"success": True, "qr_text": qrt}
-            return {"success": False, "message": "Erro SigiloPay"}
-        except: return {"success": False}
+            
+            # MOSTRA O ERRO REAL NA TELA
+            err = data.get("message") or data.get("details") or str(data)
+            return {"success": False, "message": f"SigiloPay diz: {err}"}
+        except Exception as e:
+            return {"success": False, "message": f"Erro de Rede: {str(e)}"}
+
+@bot.message_handler(commands=['start', 'painel'])
+def send_welcome(message):
+    uid = str(message.from_user.id)
+    if uid != ADMIN_ID: return
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton(text="📱 ABRIR PAINEL", web_app=WebAppInfo(url=WEBAPP_URL)))
+    bot.send_message(message.chat.id, "✅ *SISTEMA REATIVADO!*\n\nUse o botão abaixo:", parse_mode="Markdown", reply_markup=markup)
 
 @app.post("/webhook")
 async def webhook_sigilopay(request: Request):
@@ -115,25 +116,21 @@ async def webhook_sigilopay(request: Request):
         if data.get("status") in ["pago", "paid"]:
             col_cobrancas.update_one({"transaction_id": tid}, {"$set": {"status": "pago", "pago_em": datetime.now()}})
             c = col_cobrancas.find_one({"transaction_id": tid})
-            bot.send_message(ADMIN_ID, f"💰 *PAGAMENTO RECEBIDO!*\n👤 Por: `{c.get('criado_por', 'Admin')}`\n✅ Status: PAGO", parse_mode="Markdown")
+            if c: bot.send_message(ADMIN_ID, f"💰 *PAGAMENTO RECEBIDO!*\n👤 Por: `{c.get('criado_por', 'Admin')}`\n✅ Status: PAGO", parse_mode="Markdown")
         return {"success": True}
     except: return {"success": False}
 
 def run_bot():
-    print("🧹 Limpando configurações antigas do Bot...")
-    bot.remove_webhook() # ESSA É A CHAVE! Limpa o Telegram.
+    bot.remove_webhook()
     time.sleep(1)
     while True:
-        try:
-            print("🤖 Bot ouvindo mensagens...")
-            bot.infinity_polling(timeout=60, long_polling_timeout=60)
-        except Exception as e:
-            print(f"⚠️ Erro Polling: {e}"); time.sleep(5)
+        try: bot.infinity_polling(timeout=60)
+        except: time.sleep(5)
 
 @app.on_event("startup")
 def startup():
     threading.Thread(target=run_bot, daemon=True).start()
-    try: bot.send_message(ADMIN_ID, "🔄 *BOT REINICIADO E LIMPO!* Pode testar o /start.")
+    try: bot.send_message(ADMIN_ID, "🚀 *SISTEMA ON!* PIX e Bot prontos.")
     except: pass
 
 if __name__ == "__main__":
