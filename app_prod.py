@@ -1,9 +1,8 @@
-import os, json, time, httpx, threading, random, secrets, telebot
+import os, json, time, httpx, threading, random, telebot
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional
 import uvicorn
 from pymongo import MongoClient
 from fastapi.responses import HTMLResponse
@@ -20,8 +19,8 @@ bot = telebot.TeleBot(TOKEN)
 
 # --- MONGODB ---
 try:
-    MONGO_URI = "mongodb+srv://michelidiasphoto_db_user:lVN70gFWTgsecLTw@cluster0.eb7vf2i.mongodb.net/?appName=Cluster0"
-    client = MongoClient(MONGO_URI); db = client["sigilopay_db"]
+    client = MongoClient("mongodb+srv://michelidiasphoto_db_user:lVN70gFWTgsecLTw@cluster0.eb7vf2i.mongodb.net/?appName=Cluster0")
+    db = client["sigilopay_db"]
     col_cobrancas = db["cobrancas"]; col_users = db["users"]
 except: pass
 
@@ -35,20 +34,7 @@ def gerar_cpf_real():
         c.append(11 - v if v > 1 else 0)
     return "".join(map(str, c))
 
-# --- ROTAS DE NAVEGAÇÃO (GARANTE QUE O PAINEL ABRA) ---
-@app.get("/{full_path:path}", response_class=HTMLResponse)
-async def catch_all(request: Request, full_path: str):
-    # Se a rota começar com 'api', deixa o FastAPI tratar normal
-    if full_path.startswith("api") or full_path == "webhook":
-        raise HTTPException(status_code=404)
-    # Para qualquer outra coisa, abre o dashboard.html
-    try:
-        with open("dashboard.html", "r", encoding="utf-8") as f:
-            return f.read()
-    except:
-        return "⚠️ Erro: Arquivo dashboard.html não encontrado no servidor."
-
-# --- API E GESTÃO ---
+# --- API E GESTÃO (DEVEM VIR PRIMEIRO) ---
 @app.post("/api/login")
 async def api_login(d: dict):
     u = d.get("username"); p = d.get("password")
@@ -68,8 +54,8 @@ async def list_users():
     users = list(col_users.find({}, {"_id": 0}))
     for u in users:
         pago_u = list(col_cobrancas.find({"status": "pago", "criado_por": u['username']}))
-        total_u = sum([c.get("valor", 0) for c in pago_u])
-        u['total_vendas'] = total_u; u['saldo_disponivel'] = total_u * 0.8
+        u['total_vendas'] = sum([c.get("valor", 0) for c in pago_u])
+        u['saldo_disponivel'] = u['total_vendas'] * 0.8
     return users
 
 @app.post("/api/users/add")
@@ -85,18 +71,17 @@ async def delete_user(username: str):
 @app.post("/api/gerar_pix_web")
 async def gerar_pix_web(req: PixReq):
     ident = f"web_{int(time.time())}"
-    str_cpf = gerar_cpf_real()
-    payload = {"identifier": ident, "amount": round(req.valor, 2), "callbackUrl": f"{WEBAPP_URL}/webhook", "client": {"name": "Web VIP", "email": "w@e.com", "phone": "119", "document": str_cpf}}
+    payload = {"identifier": ident, "amount": round(req.valor, 2), "callbackUrl": f"{WEBAPP_URL}/webhook", "client": {"name": "Web VIP", "email": "w@e.com", "phone": "119", "document": gerar_cpf_real()}}
     headers = {"x-public-key": "laispereiraphoto_2s0vatrdx6coy3pp", "x-secret-key": "kqkjdw66o0hv37gz2w4n15m5thp0w2jv6txe1k4ss7354169260wdpqegta7en2v", "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=30) as cl:
         try:
             resp = await cl.post("https://app.sigilopay.com.br/api/v1/gateway/pix/receive", json=payload, headers=headers)
-            data = resp.json(); pix = data.get("pix") or data.get("order", {}).get("pix") or {}
+            pix = resp.json().get("pix") or resp.json().get("order", {}).get("pix") or {}
             qrt = pix.get("code") or pix.get("payload") or ""
             if qrt:
                 col_cobrancas.insert_one({"transaction_id": ident, "valor": req.valor, "status": "aguardando", "criado_por": req.username, "criado_em": datetime.now()})
                 return {"success": True, "qr_text": qrt}
-            return {"success": False, "message": data.get("message")}
+            return {"success": False, "message": resp.json().get("message")}
         except: return {"success": False}
 
 @app.post("/webhook")
@@ -106,21 +91,38 @@ async def webhook_sigilopay(request: Request):
         if data.get("status") in ["pago", "paid"]:
             col_cobrancas.update_one({"transaction_id": tid}, {"$set": {"status": "pago", "pago_em": datetime.now()}})
             c = col_cobrancas.find_one({"transaction_id": tid})
-            if c: bot.send_message(ADMIN_ID, f"💰 *PAGAMENTO RECEBIDO!*\n👤 Por: `{c.get('criado_por', 'Admin')}`\n✅ Status: PAGO", parse_mode="Markdown")
+            if c: bot.send_message(ADMIN_ID, f"💰 *PAGAMENTO RECEBIDO!*\n👤 De: `{c.get('criado_por')}`\n✅ PAGO!", parse_mode="Markdown")
         return {"success": True}
     except: return {"success": False}
 
+# --- BOT TELEGRAM ---
+@bot.message_handler(commands=['start', 'painel'])
+def send_welcome(message):
+    uid = str(message.from_user.id)
+    if uid != ADMIN_ID:
+        bot.send_message(message.chat.id, f"🚫 Acesso negado para ID: {uid}")
+        return
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton(text="📱 ABRIR PAINEL", web_app=WebAppInfo(url=WEBAPP_URL)))
+    bot.send_message(message.chat.id, "✅ *SISTEMA REATIVADO!*\n\nAcesse o painel abaixo:", parse_mode="Markdown", reply_markup=markup)
+
+# --- ROTA DO PAINEL (DEVE SER A ÚLTIMA) ---
+@app.get("/{full_path:path}", response_class=HTMLResponse)
+async def catch_all(request: Request, full_path: str):
+    try:
+        with open("dashboard.html", "r", encoding="utf-8") as f: return f.read()
+    except: return "⚠️ Erro: Arquivo dashboard.html ausente."
+
 def run_bot():
     bot.remove_webhook()
-    time.sleep(1)
-    while True:
-        try: bot.infinity_polling(timeout=60)
-        except: time.sleep(5)
+    time.sleep(2)
+    print("🤖 Bot Iniciado!")
+    bot.infinity_polling(timeout=60)
 
 @app.on_event("startup")
 def startup():
     threading.Thread(target=run_bot, daemon=True).start()
-    try: bot.send_message(ADMIN_ID, "🚀 *SISTEMA REESTABELECIDO!* O Painel deve abrir agora.")
+    try: bot.send_message(ADMIN_ID, "🚀 *SISTEMA OPERACIONAL!* Tudo funcionando.")
     except: pass
 
 if __name__ == "__main__":
