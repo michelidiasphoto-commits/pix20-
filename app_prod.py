@@ -22,8 +22,7 @@ bot = telebot.TeleBot(TOKEN)
 try:
     client = MongoClient("mongodb+srv://michelidiasphoto_db_user:lVN70gFWTgsecLTw@cluster0.eb7vf2i.mongodb.net/?appName=Cluster0")
     db = client["sigilopay_db"]
-    col_cobrancas = db["cobrancas"]; col_users = db["users"]
-    col_saques = db["saques"] # Nova coleção para histórico de saques
+    col_cobrancas = db["cobrancas"]; col_users = db["users"]; col_saques = db["saques"]
 except: pass
 
 class PixReq(BaseModel): valor: float; username: str
@@ -37,32 +36,7 @@ def gerar_cpf_real():
         c.append(11 - v if v > 1 else 0)
     return "".join(map(str, c))
 
-# --- API DE SAQUE (NOVA FUNÇÃO) ---
-@app.post("/api/saque")
-async def api_saque(req: SaqueReq):
-    try:
-        # 1. Registra no Banco de Dados
-        col_saques.insert_one({
-            "username": req.username,
-            "valor": req.valor,
-            "chave_pix": req.pix_key,
-            "data": datetime.now(),
-            "status": "pendente"
-        })
-        
-        # 2. Avisa o Admin no Telegram
-        msg = (f"💸 *SOLICITAÇÃO DE SAQUE!*\n\n"
-               f"👤 Usuário: `{req.username}`\n"
-               f"💰 Valor: `R$ {req.valor:.2f}`\n"
-               f"🔑 Chave PIX: `{req.pix_key}`\n\n"
-               f"⚠️ Verifique o saldo do usuário no painel antes de pagar.")
-        bot.send_message(ADMIN_ID, msg, parse_mode="Markdown")
-        
-        return {"success": True}
-    except Exception as e:
-        return {"success": False, "message": str(e)}
-
-# --- ROTAS EXISTENTES (NÃO ALTERADAS) ---
+# --- API E GESTÃO ---
 @app.post("/api/login")
 async def api_login(d: dict):
     u = d.get("username"); p = d.get("password")
@@ -96,6 +70,14 @@ async def add_user(user: UserData):
 async def delete_user(username: str):
     col_users.delete_one({"username": username}); return {"success": True}
 
+@app.post("/api/saque")
+async def api_saque(req: SaqueReq):
+    try:
+        col_saques.insert_one({"username": req.username, "valor": req.valor, "chave_pix": req.pix_key, "data": datetime.now(), "status": "pendente"})
+        bot.send_message(ADMIN_ID, f"💸 *SAQUE SOLICITADO!*\n👤 `{req.username}`\n💰 `R$ {req.valor:.2f}`\n🔑 `{req.pix_key}`", parse_mode="Markdown")
+        return {"success": True}
+    except: return {"success": False}
+
 @app.post("/api/gerar_pix_web")
 async def gerar_pix_web(req: PixReq):
     ident = f"web_{int(time.time())}"
@@ -119,19 +101,24 @@ async def webhook_sigilopay(request: Request):
         if data.get("status") in ["pago", "paid"]:
             col_cobrancas.update_one({"transaction_id": tid}, {"$set": {"status": "pago", "pago_em": datetime.now()}})
             c = col_cobrancas.find_one({"transaction_id": tid})
-            if c: bot.send_message(ADMIN_ID, f"💰 *PAGO!* De: `{c.get('criado_por')}`", parse_mode="Markdown")
+            if c: bot.send_message(ADMIN_ID, f"💰 *PAGO!* Por: `{c.get('criado_por')}`", parse_mode="Markdown")
         return {"success": True}
     except: return {"success": False}
 
+# --- BOT TELEGRAM ---
 @bot.message_handler(commands=['start', 'painel'])
 def send_welcome(message):
     if str(message.from_user.id) != ADMIN_ID: return
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton(text="📱 ABRIR PAINEL", web_app=WebAppInfo(url=WEBAPP_URL)))
-    bot.send_message(message.chat.id, "✅ *SISTEMA ONLINE!*", parse_mode="Markdown", reply_markup=markup)
+    bot.send_message(message.chat.id, "✅ *SISTEMA OPERACIONAL!*", parse_mode="Markdown", reply_markup=markup)
 
+# --- CATCH-ALL (CORRIGIDO PARA NÃO BLOQUEAR APIs) ---
 @app.get("/{full_path:path}", response_class=HTMLResponse)
 async def catch_all(request: Request, full_path: str):
+    # Se o caminho for uma API, deixa o FastAPI dar erro 404 real ou processar se existir
+    if full_path.startswith("api") or full_path == "webhook":
+        raise HTTPException(status_code=404)
     try:
         with open("dashboard.html", "r", encoding="utf-8") as f: return f.read()
     except: return "dashboard.html não encontrado."
@@ -142,7 +129,7 @@ def run_bot():
 @app.on_event("startup")
 def startup():
     threading.Thread(target=run_bot, daemon=True).start()
-    try: bot.send_message(ADMIN_ID, "🚀 *SISTEMA ATUALIZADO!* Módulo de Saques ativo.")
+    try: bot.send_message(ADMIN_ID, "🚀 *SISTEMA REESTABELECIDO!* Gestão e Saques ativos.")
     except: pass
 
 if __name__ == "__main__":
