@@ -34,7 +34,8 @@
         .del-btn { background: #ef4444; color: white; border: none; padding: 5px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; }
 
         #result-area { display: none; text-align: center; margin-top: 20px; }
-        #qr-image { width: 220px; height: 220px; background: white; margin: 10px auto; border-radius: 12px; }
+        #qr-image { width: 220px; height: 220px; background: white; margin: 10px auto; border-radius: 12px; display: block; }
+        .loader { display: none; color: var(--accent); margin: 15px 0; font-weight: 600; text-align: center; }
     </style>
 </head>
 <body>
@@ -60,11 +61,13 @@
         <div id="pix" class="section active">
             <div class="card">
                 <div style="display:flex; justify-content:space-between; margin-bottom:15px;">
-                    <span style="font-size:12px; opacity:0.6;">Sessão Ativa</span>
+                    <span style="font-size:12px; opacity:0.6;">Painel Online</span>
                     <button onclick="logout()" style="background:none; border:none; color:#ef4444; font-size:11px; cursor:pointer;">Sair / Deslogar</button>
                 </div>
                 <input type="number" id="amount" placeholder="Valor (R$)">
-                <button class="btn" onclick="gerar()">GERAR PIX</button>
+                <button class="btn" id="btn-gen" onclick="gerar()">GERAR PIX AGORA</button>
+                <div class="loader" id="loader">Gerando seu PIX...</div>
+
                 <div id="result-area">
                     <img id="qr-image" src="">
                     <button class="btn" style="background:#334155; color:white; margin-top:10px;" onclick="copy()">COPIAR PIX</button>
@@ -91,41 +94,38 @@
         const tg = window.Telegram.WebApp;
         tg.expand();
 
-        // Atalho para o ENTER no login
         document.addEventListener('keypress', (e) => {
             if(e.key === 'Enter') {
                 if(document.getElementById('login-screen').style.display !== 'none') login();
-                else if(document.getElementById('pix').classList.contains('active')) gerar();
             }
         });
 
         async function login(savedUser, savedPass) {
             const u = savedUser || document.getElementById('user').value;
             const p = savedPass || document.getElementById('pass').value;
-            const r = await fetch('/api/login', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({username: u, password: p})
-            });
-            const d = await r.json();
-            if(d.success) {
-                if(document.getElementById('remember').checked) {
-                    localStorage.setItem('vip_u', u);
-                    localStorage.setItem('vip_p', p);
-                }
-                document.getElementById('login-screen').style.display = 'none';
-                document.getElementById('main-content').style.display = 'block';
-                if(d.role === 'admin') {
-                    document.getElementById('admin-tab').style.display = 'block';
-                    loadUsers();
-                }
-            } else if(!savedUser) { alert("Login inválido"); }
+            try {
+                const r = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username: u, password: p})
+                });
+                const d = await r.json();
+                if(d.success) {
+                    if(document.getElementById('remember').checked) {
+                        localStorage.setItem('vip_u', u);
+                        localStorage.setItem('vip_p', p);
+                    }
+                    document.getElementById('login-screen').style.display = 'none';
+                    document.getElementById('main-content').style.display = 'block';
+                    if(d.role === 'admin') {
+                        document.getElementById('admin-tab').style.display = 'block';
+                        loadUsers();
+                    }
+                } else { if(!savedUser) alert("Login inválido!"); }
+            } catch(e) { console.error(e); }
         }
 
-        function logout() {
-            localStorage.clear();
-            location.reload();
-        }
+        function logout() { localStorage.clear(); location.reload(); }
 
         function switchTab(id, el) {
             document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
@@ -138,64 +138,61 @@
             const r = await fetch('/api/users');
             const users = await r.json();
             const list = document.getElementById('user-list');
-            list.innerHTML = users.map(u => `
-                <div class="user-item">
-                    <span>👤 ${u.username}</span>
-                    <button class="del-btn" onclick="delUser('${u.username}')">Excluir</button>
-                </div>
-            `).join('') || "Nenhum usuário.";
+            list.innerHTML = users.map(u => `<div class="user-item"><span>👤 ${u.username}</span><button class="del-btn" onclick="delUser('${u.username}')">Excluir</button></div>`).join('') || "Sem usuários.";
         }
 
         async function addUser() {
             const u = document.getElementById('new-user').value;
             const p = document.getElementById('new-pass').value;
             if(!u || !p) return;
-            await fetch('/api/users/add', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({username: u, password: p})
-            });
-            alert("Usuário criado!");
-            loadUsers();
+            await fetch('/api/users/add', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({username: u, password: p}) });
+            alert("Criado!"); loadUsers();
         }
 
         async function delUser(u) {
-            if(!confirm("Deseja excluir?")) return;
-            await fetch(`/api/users/${u}`, { method: 'DELETE' });
-            loadUsers();
+            if(!confirm("Excluir?")) return;
+            await fetch(`/api/users/${u}`, { method: 'DELETE' }); loadUsers();
         }
 
         async function gerar() {
             const val = document.getElementById('amount').value;
-            if(!val) return;
-            const r = await fetch('/api/gerar_pix_web', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({valor: parseFloat(val)})
-            });
-            const d = await r.json();
-            if(d.success) {
-                document.getElementById('pix-code').innerText = d.qr_text;
-                QRCode.toDataURL(d.qr_text, {width: 400, margin: 2}, (err, url) => {
-                    document.getElementById('qr-image').src = url;
-                    document.getElementById('result-area').style.display = 'block';
+            if(!val) return alert("Digite um valor");
+            
+            const btn = document.getElementById('btn-gen');
+            const loader = document.getElementById('loader');
+            const res = document.getElementById('result-area');
+            
+            btn.style.display = 'none'; loader.style.display = 'block'; res.style.display = 'none';
+
+            try {
+                const r = await fetch('/api/gerar_pix_web', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({valor: parseFloat(val)})
                 });
+                const d = await r.json();
+                if(d.success) {
+                    document.getElementById('pix-code').innerText = d.qr_text;
+                    QRCode.toDataURL(d.qr_text, {width: 400, margin: 2}, (err, url) => {
+                        document.getElementById('qr-image').src = url;
+                        res.style.display = 'block';
+                        loader.style.display = 'none';
+                    });
+                } else {
+                    alert("Erro: " + (d.message || "A SigiloPay não respondeu. Verifique sua conta."));
+                    btn.style.display = 'block'; loader.style.display = 'none';
+                }
+            } catch(e) {
+                alert("Erro de conexão!");
+                btn.style.display = 'block'; loader.style.display = 'none';
             }
         }
 
-        function copy() {
-            navigator.clipboard.writeText(document.getElementById('pix-code').innerText);
-            tg.HapticFeedback.notificationOccurred('success');
-            alert("Copiado!");
-        }
+        function copy() { navigator.clipboard.writeText(document.getElementById('pix-code').innerText); tg.HapticFeedback.notificationOccurred('success'); alert("Copiado!"); }
 
-        // AUTO-LOGIN
         const su = localStorage.getItem('vip_u');
         const sp = localStorage.getItem('vip_p');
-        if(su && sp) {
-            document.getElementById('remember').checked = true;
-            login(su, sp);
-        }
+        if(su && sp) { document.getElementById('remember').checked = true; login(su, sp); }
     </script>
 </body>
 </html>
