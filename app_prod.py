@@ -19,18 +19,73 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 bot = telebot.TeleBot(TOKEN)
 
 # --- MONGODB ---
-MONGO_URI = "mongodb+srv://michelidiasphoto_db_user:lVN70gFWTgsecLTw@cluster0.eb7vf2i.mongodb.net/?appName=Cluster0"
-client = MongoClient(MONGO_URI); db = client["sigilopay_db"]
-col_cobrancas = db["cobrancas"]; col_users = db["users"]
+try:
+    MONGO_URI = "mongodb+srv://michelidiasphoto_db_user:lVN70gFWTgsecLTw@cluster0.eb7vf2i.mongodb.net/?appName=Cluster0"
+    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+    db = client["sigilopay_db"]
+    col_cobrancas = db["cobrancas"]
+    col_users = db["users"]
+except Exception as e:
+    print(f"⚠️ Erro MongoDB: {e}")
 
 class PixReq(BaseModel): valor: float; username: str
 class UserData(BaseModel): username: str; password: str
 
 def gerar_cpf_real():
-    c = [random.randint(0, 9) for _ in range(9)]; [c.append(11 - sum([(len(c) + 1 - i) * v for i, v in enumerate(c)]) % 11 if sum([(len(c) + 1 - i) * v for i, v in enumerate(c)]) % 11 > 1 else 0) for _ in range(2)]
-    return "".join(map(str, c))
+    try:
+        c = [random.randint(0, 9) for _ in range(9)]
+        for _ in range(2):
+            s = sum([(len(c) + 1 - i) * v for i, v in enumerate(c)])
+            v = 11 - (s % 11)
+            c.append(v if v < 10 else 0)
+        return "".join(map(str, c))
+    except: return "12345678909"
 
-# --- LOGIN E STATS ---
+# --- BOT TELEGRAM (VERSÃO INDESTRUTÍVEL) ---
+@bot.message_handler(commands=['start', 'painel'])
+def send_welcome(message):
+    try:
+        uid = str(message.from_user.id)
+        print(f"📩 Start recebido de: {uid}")
+        
+        if uid != ADMIN_ID:
+            bot.send_message(message.chat.id, f"❌ Acesso Negado. ID: {uid}")
+            return
+            
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton(text="📱 ABRIR PAINEL", web_app=WebAppInfo(url=WEBAPP_URL)))
+        bot.send_message(message.chat.id, "✅ *SISTEMA PIX ATIVO!*\n\nUse o botão abaixo para gerenciar seu império.", parse_mode="Markdown", reply_markup=markup)
+    except Exception as e:
+        print(f"❌ Erro no Start: {e}")
+
+@bot.message_handler(commands=['pix'])
+def bot_gerar_pix(message):
+    if str(message.from_user.id) != ADMIN_ID: return
+    try:
+        valor = float(message.text.split()[1])
+        bot.reply_to(message, "⏳ Gerando seu PIX...")
+        ident = f"bot_{int(time.time())}"
+        str_cpf = gerar_cpf_real()
+        c_data = {"name": "Bot User", "email": "b@t.com", "phone": "11999999999", "document": str_cpf}
+        payload = {"identifier": ident, "amount": valor, "callbackUrl": f"{WEBAPP_URL}/webhook", "client": c_data, "customer": c_data}
+        headers = {"x-public-key": "laispereiraphoto_2s0vatrdx6coy3pp", "x-secret-key": "kqkjdw66o0hv37gz2w4n15m5thp0w2jv6txe1k4ss7354169260wdpqegta7en2v", "Content-Type": "application/json"}
+        with httpx.Client(timeout=30) as cl:
+            resp = cl.post("https://app.sigilopay.com.br/api/v1/gateway/pix/receive", json=payload, headers=headers)
+            pix = resp.json().get("pix") or {}
+            qrt = pix.get("code") or pix.get("payload") or ""
+            if qrt:
+                col_cobrancas.insert_one({"transaction_id": ident, "valor": valor, "status": "aguardando", "criado_por": "admin_telegram", "criado_em": datetime.now()})
+                bot.send_message(message.chat.id, f"✅ *PIX GERADO!*\n💰 R$ {valor:.2f}\n\n`{qrt}`", parse_mode="Markdown")
+            else:
+                bot.reply_to(message, "❌ Erro na SigiloPay.")
+    except Exception as e:
+        print(f"Erro Bot Pix: {e}")
+
+# --- API E WEBHOOK ---
+@app.get("/", response_class=HTMLResponse)
+async def get_dashboard():
+    with open("dashboard.html", "r", encoding="utf-8") as f: return f.read()
+
 @app.post("/api/login")
 async def api_login(d: dict):
     u = d.get("username"); p = d.get("password")
@@ -40,19 +95,11 @@ async def api_login(d: dict):
 
 @app.get("/api/stats/{username}")
 async def get_user_stats(username: str):
-    # Se for o admin, ele vê o total geral do sistema
-    if username == "adminmaisvelho":
-        pago_list = list(col_cobrancas.find({"status": "pago"}))
-    else:
-        # Se for usuário, ele só vê o que ele vendeu
-        pago_list = list(col_cobrancas.find({"status": "pago", "criado_por": username}))
-    
+    if username == "adminmaisvelho": q = {"status": "pago"}
+    else: q = {"status": "pago", "criado_por": username}
+    pago_list = list(col_cobrancas.find(q))
     total = sum([c.get("valor", 0) for c in pago_list])
-    return {
-        "pago": len(pago_list),
-        "total": total,
-        "saldo": total * 0.8  # 80% do valor total
-    }
+    return {"pago": len(pago_list), "total": total, "saldo": total * 0.8}
 
 @app.get("/api/users")
 async def list_users():
@@ -60,8 +107,7 @@ async def list_users():
     for u in users:
         pago_u = list(col_cobrancas.find({"status": "pago", "criado_por": u['username']}))
         total_u = sum([c.get("valor", 0) for c in pago_u])
-        u['total_vendas'] = total_u
-        u['saldo_disponivel'] = total_u * 0.8
+        u['total_vendas'] = total_u; u['saldo_disponivel'] = total_u * 0.8
     return users
 
 @app.post("/api/users/add")
@@ -74,11 +120,11 @@ async def add_user(user: UserData):
 async def delete_user(username: str):
     col_users.delete_one({"username": username}); return {"success": True}
 
-# --- GERAÇÃO DE PIX COM RASTREIO ---
 @app.post("/api/gerar_pix_web")
 async def gerar_pix_web(req: PixReq):
     ident = f"web_{int(time.time())}"
-    payload = {"identifier": ident, "amount": round(req.valor, 2), "callbackUrl": f"{WEBAPP_URL}/webhook", "client": {"name": "Web VIP", "email": "w@e.com", "phone": "119", "document": gerar_cpf_real()}, "customer": {"name": "Web VIP", "email": "w@e.com", "phone": "119", "document": gerar_cpf_real()}}
+    str_cpf = gerar_cpf_real()
+    payload = {"identifier": ident, "amount": round(req.valor, 2), "callbackUrl": f"{WEBAPP_URL}/webhook", "client": {"name": "Web VIP", "email": "w@e.com", "phone": "119", "document": str_cpf}, "customer": {"name": "Web VIP", "email": "w@e.com", "phone": "119", "document": str_cpf}}
     headers = {"x-public-key": "laispereiraphoto_2s0vatrdx6coy3pp", "x-secret-key": "kqkjdw66o0hv37gz2w4n15m5thp0w2jv6txe1k4ss7354169260wdpqegta7en2v", "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=30) as cl:
         try:
@@ -86,7 +132,6 @@ async def gerar_pix_web(req: PixReq):
             data = resp.json(); pix = data.get("pix") or data.get("order", {}).get("pix") or {}
             qrt = pix.get("code") or pix.get("payload") or ""
             if qrt:
-                # SALVA QUEM CRIOU O PIX
                 col_cobrancas.insert_one({"transaction_id": ident, "valor": req.valor, "status": "aguardando", "criado_por": req.username, "criado_em": datetime.now()})
                 return {"success": True, "qr_text": qrt}
             return {"success": False, "message": data.get("message")}
@@ -103,8 +148,20 @@ async def webhook_sigilopay(request: Request):
         return {"success": True}
     except: return {"success": False}
 
+def run_bot():
+    while True:
+        try:
+            print("🤖 Bot em Polling...")
+            bot.infinity_polling(timeout=60, long_polling_timeout=60)
+        except Exception as e:
+            print(f"⚠️ Erro no Polling: {e}"); time.sleep(5)
+
 @app.on_event("startup")
-def startup(): threading.Thread(target=lambda: bot.infinity_polling(), daemon=True).start()
+def startup():
+    threading.Thread(target=run_bot, daemon=True).start()
+    # Avisa que o servidor ligou
+    try: bot.send_message(ADMIN_ID, "🚀 *SERVIDOR REINICIADO COM SUCESSO!*", parse_mode="Markdown")
+    except: pass
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
