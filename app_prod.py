@@ -35,7 +35,20 @@ def gerar_cpf_real():
         c.append(11 - v if v > 1 else 0)
     return "".join(map(str, c))
 
-# --- LOGIN E GESTÃO ---
+# --- ROTAS DE NAVEGAÇÃO (GARANTE QUE O PAINEL ABRA) ---
+@app.get("/{full_path:path}", response_class=HTMLResponse)
+async def catch_all(request: Request, full_path: str):
+    # Se a rota começar com 'api', deixa o FastAPI tratar normal
+    if full_path.startswith("api") or full_path == "webhook":
+        raise HTTPException(status_code=404)
+    # Para qualquer outra coisa, abre o dashboard.html
+    try:
+        with open("dashboard.html", "r", encoding="utf-8") as f:
+            return f.read()
+    except:
+        return "⚠️ Erro: Arquivo dashboard.html não encontrado no servidor."
+
+# --- API E GESTÃO ---
 @app.post("/api/login")
 async def api_login(d: dict):
     u = d.get("username"); p = d.get("password")
@@ -69,45 +82,22 @@ async def add_user(user: UserData):
 async def delete_user(username: str):
     col_users.delete_one({"username": username}); return {"success": True}
 
-# --- GERAÇÃO DE PIX (RECEITA MESTRA) ---
 @app.post("/api/gerar_pix_web")
 async def gerar_pix_web(req: PixReq):
     ident = f"web_{int(time.time())}"
     str_cpf = gerar_cpf_real()
-    payload = {
-        "identifier": ident,
-        "amount": round(req.valor, 2),
-        "callbackUrl": f"{WEBAPP_URL}/webhook",
-        "client": {"name": "Web VIP", "email": "w@e.com", "phone": "11999999999", "document": str_cpf}
-    }
-    headers = {
-        "x-public-key": "laispereiraphoto_2s0vatrdx6coy3pp",
-        "x-secret-key": "kqkjdw66o0hv37gz2w4n15m5thp0w2jv6txe1k4ss7354169260wdpqegta7en2v",
-        "Content-Type": "application/json"
-    }
+    payload = {"identifier": ident, "amount": round(req.valor, 2), "callbackUrl": f"{WEBAPP_URL}/webhook", "client": {"name": "Web VIP", "email": "w@e.com", "phone": "119", "document": str_cpf}}
+    headers = {"x-public-key": "laispereiraphoto_2s0vatrdx6coy3pp", "x-secret-key": "kqkjdw66o0hv37gz2w4n15m5thp0w2jv6txe1k4ss7354169260wdpqegta7en2v", "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=30) as cl:
         try:
             resp = await cl.post("https://app.sigilopay.com.br/api/v1/gateway/pix/receive", json=payload, headers=headers)
-            data = resp.json()
-            pix = data.get("pix") or data.get("order", {}).get("pix") or data.get("data", {}).get("pix") or {}
-            qrt = pix.get("code") or pix.get("payload") or pix.get("qrCodeText") or data.get("qrcode") or ""
+            data = resp.json(); pix = data.get("pix") or data.get("order", {}).get("pix") or {}
+            qrt = pix.get("code") or pix.get("payload") or ""
             if qrt:
                 col_cobrancas.insert_one({"transaction_id": ident, "valor": req.valor, "status": "aguardando", "criado_por": req.username, "criado_em": datetime.now()})
                 return {"success": True, "qr_text": qrt}
-            
-            # MOSTRA O ERRO REAL NA TELA
-            err = data.get("message") or data.get("details") or str(data)
-            return {"success": False, "message": f"SigiloPay diz: {err}"}
-        except Exception as e:
-            return {"success": False, "message": f"Erro de Rede: {str(e)}"}
-
-@bot.message_handler(commands=['start', 'painel'])
-def send_welcome(message):
-    uid = str(message.from_user.id)
-    if uid != ADMIN_ID: return
-    markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton(text="📱 ABRIR PAINEL", web_app=WebAppInfo(url=WEBAPP_URL)))
-    bot.send_message(message.chat.id, "✅ *SISTEMA REATIVADO!*\n\nUse o botão abaixo:", parse_mode="Markdown", reply_markup=markup)
+            return {"success": False, "message": data.get("message")}
+        except: return {"success": False}
 
 @app.post("/webhook")
 async def webhook_sigilopay(request: Request):
@@ -130,7 +120,7 @@ def run_bot():
 @app.on_event("startup")
 def startup():
     threading.Thread(target=run_bot, daemon=True).start()
-    try: bot.send_message(ADMIN_ID, "🚀 *SISTEMA ON!* PIX e Bot prontos.")
+    try: bot.send_message(ADMIN_ID, "🚀 *SISTEMA REESTABELECIDO!* O Painel deve abrir agora.")
     except: pass
 
 if __name__ == "__main__":
