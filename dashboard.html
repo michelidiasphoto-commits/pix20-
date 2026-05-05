@@ -20,12 +20,13 @@
         .section { display: none; }
         .section.active { display: block; }
         .card { background: var(--card); padding: 20px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 15px; }
-        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
         .stat-card { background: rgba(0,0,0,0.3); padding: 15px; border-radius: 15px; text-align: center; border: 1px solid rgba(255,255,255,0.05); }
         .stat-card span { font-size: 10px; opacity: 0.6; display: block; margin-bottom: 5px; }
         .stat-card strong { font-size: 16px; color: var(--accent); }
         input { width: 100%; background: #000; border: 1px solid #334155; padding: 14px; border-radius: 12px; color: white; margin-bottom: 10px; font-size: 15px; }
         .btn { width: 100%; background: var(--accent); color: #052e16; border: none; padding: 15px; border-radius: 12px; font-weight: 700; cursor: pointer; }
+        .btn-saque { background: transparent; border: 1px solid var(--accent); color: var(--accent); margin-top: 10px; font-size: 12px; padding: 10px; }
         .user-item { display: flex; flex-direction: column; padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); gap: 5px; }
         .user-info { display: flex; justify-content: space-between; align-items: center; }
         .user-stats { font-size: 11px; opacity: 0.7; color: var(--accent); }
@@ -36,7 +37,7 @@
 <body>
     <div id="login-screen">
         <div class="login-card">
-            <h2 style="text-align: center; margin-bottom: 20px;">🔐 Painel Financeiro</h2>
+            <h2 style="text-align: center; margin-bottom: 20px;">🔐 Painel VIP</h2>
             <input type="text" id="user" placeholder="Usuário">
             <input type="password" id="pass" placeholder="Senha">
             <button class="btn" onclick="login()">ENTRAR</button>
@@ -54,7 +55,9 @@
                 <div class="stat-card"><span>TOTAL VENDIDO</span><strong id="stat-total">R$ 0,00</strong></div>
                 <div class="stat-card"><span>SALDO (80%)</span><strong id="stat-saldo">R$ 0,00</strong></div>
             </div>
-            <div class="card">
+            <button class="btn btn-saque" onclick="solicitarSaque()">💸 SOLICITAR SAQUE (80%)</button>
+
+            <div class="card" style="margin-top: 20px;">
                 <input type="number" id="amount" placeholder="Valor do PIX (R$)">
                 <button class="btn" onclick="gerar()">GERAR COBRANÇA</button>
                 <div id="result-area">
@@ -63,7 +66,7 @@
                     <div id="pix-code" style="display:none;"></div>
                 </div>
             </div>
-            <button onclick="logout()" style="width:100%; background:none; border:none; color:#ef4444; margin-top:10px; font-size:12px;">Deslogar do Sistema</button>
+            <button onclick="logout()" style="width:100%; background:none; border:none; color:#ef4444; margin-top:20px; font-size:11px;">Sair / Deslogar</button>
         </div>
 
         <div id="users" class="section">
@@ -83,6 +86,7 @@
     <script>
         const tg = window.Telegram.WebApp;
         let currentUser = "";
+        let currentSaldo = 0;
 
         async function login() {
             const u = document.getElementById('user').value;
@@ -109,15 +113,33 @@
             document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
             document.getElementById(id).classList.add('active');
             el.classList.add('active');
-            if(id === 'users') loadUsers();
-            else loadStats();
+            if(id === 'users') loadUsers(); else loadStats();
         }
 
         async function loadStats() {
             const r = await fetch(`/api/stats/${currentUser}`);
             const d = await r.json();
+            currentSaldo = d.saldo || 0;
             document.getElementById('stat-total').innerText = `R$ ${(d.total || 0).toFixed(2)}`;
-            document.getElementById('stat-saldo').innerText = `R$ ${(d.saldo || 0).toFixed(2)}`;
+            document.getElementById('stat-saldo').innerText = `R$ ${currentSaldo.toFixed(2)}`;
+        }
+
+        async function solicitarSaque() {
+            if(currentSaldo <= 0) return alert("Você não possui saldo disponível para saque!");
+            const valor = prompt(`Qual valor deseja sacar? (Máximo R$ ${currentSaldo.toFixed(2)})`);
+            if(!valor || isNaN(valor) || parseFloat(valor) <= 0) return;
+            if(parseFloat(valor) > currentSaldo) return alert("Valor maior que o saldo disponível!");
+            const chave = prompt("Informe sua Chave PIX para recebimento:");
+            if(!chave) return;
+
+            const r = await fetch('/api/saque', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({username: currentUser, valor: parseFloat(valor), pix_key: chave})
+            });
+            const d = await r.json();
+            if(d.success) alert("🚀 Solicitação enviada com sucesso! O administrador foi notificado.");
+            else alert("Erro ao solicitar saque.");
         }
 
         async function loadUsers() {
@@ -144,7 +166,7 @@
         }
 
         async function delUser(u) {
-            if(!confirm("Deseja remover o acesso?")) return;
+            if(!confirm("Deseja remover?")) return;
             await fetch(`/api/users/${u}`, { method: 'DELETE' }); loadUsers();
         }
 
