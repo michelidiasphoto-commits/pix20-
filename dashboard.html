@@ -10,36 +10,27 @@
     <style>
         :root { --bg: #0f172a; --card: rgba(30, 41, 59, 0.9); --accent: #22c55e; --text: #f8fafc; }
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Outfit', sans-serif; -webkit-tap-highlight-color: transparent; }
-        body { background: var(--bg); color: var(--text); padding: 10px; padding-bottom: 80px; } /* Espaço para o botão fixo */
-        
+        body { background: var(--bg); color: var(--text); padding: 10px; padding-bottom: 80px; }
         #login-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 90vh; }
         .login-card { background: var(--card); padding: 30px; border-radius: 24px; width: 100%; max-width: 340px; border: 1px solid rgba(255,255,255,0.1); }
-        
         #main-content { display: none; }
         .nav-tabs { display: flex; gap: 10px; margin-bottom: 20px; background: rgba(0,0,0,0.2); padding: 5px; border-radius: 12px; position: sticky; top: 0; z-index: 100; backdrop-filter: blur(10px); }
         .nav-item { flex: 1; text-align: center; padding: 12px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; }
         .nav-item.active { background: var(--accent); color: #052e16; }
-        
         .section { display: none; }
         .section.active { display: block; }
-        
         .card { background: var(--card); padding: 20px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 15px; }
         .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
         .stat-card { background: rgba(0,0,0,0.3); padding: 15px; border-radius: 15px; text-align: center; border: 1px solid rgba(255,255,255,0.05); }
         .stat-card span { font-size: 10px; opacity: 0.6; display: block; margin-bottom: 5px; }
         .stat-card strong { font-size: 16px; color: var(--accent); }
-        
         input { width: 100%; background: #000; border: 1px solid #334155; padding: 14px; border-radius: 12px; color: white; margin-bottom: 10px; font-size: 15px; }
         .btn { width: 100%; background: var(--accent); color: #052e16; border: none; padding: 15px; border-radius: 12px; font-weight: 700; cursor: pointer; }
-        
-        /* BOTÃO FIXO DE SAQUE */
         .fixed-saque-bar { position: fixed; bottom: 20px; left: 10px; right: 10px; z-index: 1000; display: none; }
         .btn-saque-fixed { background: #8b5cf6; color: white; box-shadow: 0 10px 20px rgba(139, 92, 246, 0.4); }
-
         .user-item { display: flex; flex-direction: column; padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); gap: 5px; }
         .user-info { display: flex; justify-content: space-between; align-items: center; }
         .user-stats { font-size: 11px; opacity: 0.7; color: var(--accent); }
-        
         #result-area { display: none; text-align: center; margin-top: 20px; }
         #qr-image { width: 220px; height: 220px; background: white; margin: 10px auto; border-radius: 12px; }
     </style>
@@ -55,7 +46,6 @@
     </div>
 
     <div id="main-content">
-        <!-- BARRA FIXA DE SAQUE (Aparece em todas as abas para o usuário) -->
         <div id="saque-bar" class="fixed-saque-bar">
             <button class="btn btn-saque-fixed" onclick="solicitarSaque()">💸 SOLICITAR SAQUE (80%)</button>
         </div>
@@ -70,9 +60,7 @@
                 <div class="stat-card"><span>TOTAL VENDIDO</span><strong id="stat-total">R$ 0,00</strong></div>
                 <div class="stat-card"><span>SALDO (80%)</span><strong id="stat-saldo">R$ 0,00</strong></div>
             </div>
-
             <div class="card">
-                <h4 style="margin-bottom:10px; font-size:14px; opacity:0.8;">Gerar Nova Cobrança</h4>
                 <input type="number" id="amount" placeholder="Valor (R$)">
                 <button class="btn" onclick="gerar()">GERAR PIX</button>
                 <div id="result-area">
@@ -99,27 +87,28 @@
     </div>
 
     <script>
-        const tg = window.Telegram.WebApp;
         let currentUser = "";
         let currentSaldo = 0;
 
         async function login() {
-            const u = document.getElementById('user').value;
-            const p = document.getElementById('pass').value;
-            const r = await fetch('/api/login', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({username: u, password: p})
-            });
-            const d = await r.json();
-            if(d.success) {
-                currentUser = u;
-                document.getElementById('login-screen').style.display = 'none';
-                document.getElementById('main-content').style.display = 'block';
-                document.getElementById('saque-bar').style.display = 'block'; // Mostra botão fixo
-                if(d.role === 'admin') document.getElementById('admin-tab').style.display = 'block';
-                loadStats();
-            } else { alert("Dados incorretos!"); }
+            try {
+                const u = document.getElementById('user').value;
+                const p = document.getElementById('pass').value;
+                const r = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username: u, password: p})
+                });
+                const d = await r.json();
+                if(d.success) {
+                    currentUser = u;
+                    document.getElementById('login-screen').style.display = 'none';
+                    document.getElementById('main-content').style.display = 'block';
+                    document.getElementById('saque-bar').style.display = 'block';
+                    if(d.role === 'admin') document.getElementById('admin-tab').style.display = 'block';
+                    loadStats();
+                } else { alert("Dados incorretos!"); }
+            } catch(e) { alert("Erro ao logar: " + e.message); }
         }
 
         function logout() { location.reload(); }
@@ -133,74 +122,94 @@
         }
 
         async function loadStats() {
-            const r = await fetch(`/api/stats/${currentUser}`);
-            const d = await r.json();
-            currentSaldo = d.saldo || 0;
-            document.getElementById('stat-total').innerText = `R$ ${(d.total || 0).toFixed(2)}`;
-            document.getElementById('stat-saldo').innerText = `R$ ${currentSaldo.toFixed(2)}`;
-        }
-
-        async function solicitarSaque() {
-            if(currentSaldo <= 0) return alert("Sem saldo para saque no momento.");
-            const valor = prompt(`Quanto deseja sacar? (Disponível: R$ ${currentSaldo.toFixed(2)})`);
-            if(!valor || isNaN(valor) || parseFloat(valor) <= 0) return;
-            if(parseFloat(valor) > currentSaldo) return alert("Saldo insuficiente!");
-            const chave = prompt("Chave PIX para recebimento:");
-            if(!chave) return;
-
-            const r = await fetch('/api/saque', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({username: currentUser, valor: parseFloat(valor), pix_key: chave})
-            });
-            const d = await r.json();
-            if(d.success) alert("🚀 Pedido enviado! O admin vai te pagar em breve.");
+            try {
+                const r = await fetch(`/api/stats/${currentUser}`);
+                const d = await r.json();
+                currentSaldo = d.saldo || 0;
+                document.getElementById('stat-total').innerText = `R$ ${(d.total || 0).toFixed(2)}`;
+                document.getElementById('stat-saldo').innerText = `R$ ${currentSaldo.toFixed(2)}`;
+            } catch(e) { console.error("Erro stats:", e); }
         }
 
         async function loadUsers() {
-            const r = await fetch('/api/users');
-            const users = await r.json();
             const list = document.getElementById('user-list');
-            list.innerHTML = users.map(u => `
-                <div class="user-item">
-                    <div class="user-info">
-                        <strong>👤 ${u.username}</strong>
-                        <button style="background:#ef4444; color:white; border:none; padding:4px 8px; border-radius:5px; font-size:10px;" onclick="delUser('${u.username}')">Remover</button>
+            list.innerHTML = "🔄 Carregando parceiros...";
+            try {
+                const r = await fetch('/api/users');
+                if(!r.ok) throw new Error("Servidor respondeu com erro " + r.status);
+                const users = await r.json();
+                if(!Array.isArray(users)) throw new Error("Resposta do servidor não é uma lista.");
+                
+                list.innerHTML = users.map(u => `
+                    <div class="user-item">
+                        <div class="user-info">
+                            <strong>👤 ${u.username || 'Sem nome'}</strong>
+                            <button style="background:#ef4444; color:white; border:none; padding:4px 8px; border-radius:5px; font-size:10px;" onclick="delUser('${u.username}')">Remover</button>
+                        </div>
+                        <div class="user-stats">Vendas: R$ ${(u.total_vendas || 0).toFixed(2)} | Saldo: R$ ${(u.saldo_disponivel || 0).toFixed(2)}</div>
                     </div>
-                    <div class="user-stats">Vendas: R$ ${u.total_vendas.toFixed(2)} | Saldo: R$ ${u.saldo_disponivel.toFixed(2)}</div>
-                </div>
-            `).join('') || "Nenhum parceiro.";
+                `).join('') || "Nenhum parceiro ativo.";
+            } catch(e) { 
+                list.innerHTML = `<div style="color:#ef4444; font-size:12px;">❌ Erro ao carregar: ${e.message}</div>`;
+                alert("Falha na Gestão: " + e.message);
+            }
+        }
+
+        async function solicitarSaque() {
+            if(currentSaldo <= 0) return alert("Sem saldo disponível.");
+            const valor = prompt(`Valor para sacar? (Máx: R$ ${currentSaldo.toFixed(2)})`);
+            if(!valor || isNaN(valor) || parseFloat(valor) <= 0) return;
+            if(parseFloat(valor) > currentSaldo) return alert("Saldo insuficiente!");
+            const chave = prompt("Chave PIX:");
+            if(!chave) return;
+
+            try {
+                const r = await fetch('/api/saque', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username: currentUser, valor: parseFloat(valor), pix_key: chave})
+                });
+                const d = await r.json();
+                if(d.success) alert("🚀 Pedido enviado!");
+            } catch(e) { alert("Erro ao pedir saque."); }
         }
 
         async function addUser() {
             const u = document.getElementById('new-user').value;
             const p = document.getElementById('new-pass').value;
             if(!u || !p) return;
-            await fetch('/api/users/add', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({username: u, password: p}) });
-            alert("Parceiro Adicionado!"); loadUsers();
+            try {
+                await fetch('/api/users/add', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({username: u, password: p}) });
+                loadUsers();
+            } catch(e) { alert("Erro ao adicionar."); }
         }
 
         async function delUser(u) {
-            if(!confirm("Remover acesso?")) return;
-            await fetch(`/api/users/${u}`, { method: 'DELETE' }); loadUsers();
+            if(!confirm("Remover?")) return;
+            try {
+                await fetch(`/api/users/${u}`, { method: 'DELETE' });
+                loadUsers();
+            } catch(e) { alert("Erro ao deletar."); }
         }
 
         async function gerar() {
             const val = document.getElementById('amount').value;
             if(!val) return;
-            const r = await fetch('/api/gerar_pix_web', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({valor: parseFloat(val), username: currentUser})
-            });
-            const d = await r.json();
-            if(d.success) {
-                document.getElementById('pix-code').innerText = d.qr_text;
-                QRCode.toDataURL(d.qr_text, {width: 400, margin: 2}, (err, url) => {
-                    document.getElementById('qr-image').src = url;
-                    document.getElementById('result-area').style.display = 'block';
+            try {
+                const r = await fetch('/api/gerar_pix_web', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({valor: parseFloat(val), username: currentUser})
                 });
-            }
+                const d = await r.json();
+                if(d.success) {
+                    document.getElementById('pix-code').innerText = d.qr_text;
+                    QRCode.toDataURL(d.qr_text, {width: 400, margin: 2}, (err, url) => {
+                        document.getElementById('qr-image').src = url;
+                        document.getElementById('result-area').style.display = 'block';
+                    });
+                } else { alert("Erro SigiloPay: " + (d.message || "Tente novamente")); }
+            } catch(e) { alert("Erro ao gerar PIX."); }
         }
 
         function copy() { navigator.clipboard.writeText(document.getElementById('pix-code').innerText); alert("Copiado!"); }
