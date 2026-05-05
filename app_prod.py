@@ -34,7 +34,7 @@ def gerar_cpf_real():
         c.append(11 - v if v > 1 else 0)
     return "".join(map(str, c))
 
-# --- API E GESTÃO (DEVEM VIR PRIMEIRO) ---
+# --- API E GESTÃO ---
 @app.post("/api/login")
 async def api_login(d: dict):
     u = d.get("username"); p = d.get("password")
@@ -68,21 +68,42 @@ async def add_user(user: UserData):
 async def delete_user(username: str):
     col_users.delete_one({"username": username}); return {"success": True}
 
+# --- GERAÇÃO DE PIX (VERSÃO ULTRA-COMPATÍVEL) ---
 @app.post("/api/gerar_pix_web")
 async def gerar_pix_web(req: PixReq):
     ident = f"web_{int(time.time())}"
-    payload = {"identifier": ident, "amount": round(req.valor, 2), "callbackUrl": f"{WEBAPP_URL}/webhook", "client": {"name": "Web VIP", "email": "w@e.com", "phone": "119", "document": gerar_cpf_real()}}
-    headers = {"x-public-key": "laispereiraphoto_2s0vatrdx6coy3pp", "x-secret-key": "kqkjdw66o0hv37gz2w4n15m5thp0w2jv6txe1k4ss7354169260wdpqegta7en2v", "Content-Type": "application/json"}
+    payload = {
+        "identifier": ident,
+        "amount": float(req.valor),
+        "callbackUrl": f"{WEBAPP_URL}/webhook",
+        "client": {
+            "name": "Cliente VIP",
+            "email": "cliente@email.com",
+            "phone": "11999999999", # Telefone completo
+            "document": gerar_cpf_real()
+        }
+    }
+    headers = {
+        "x-public-key": "laispereiraphoto_2s0vatrdx6coy3pp",
+        "x-secret-key": "kqkjdw66o0hv37gz2w4n15m5thp0w2jv6txe1k4ss7354169260wdpqegta7en2v",
+        "Content-Type": "application/json"
+    }
     async with httpx.AsyncClient(timeout=30) as cl:
         try:
             resp = await cl.post("https://app.sigilopay.com.br/api/v1/gateway/pix/receive", json=payload, headers=headers)
-            pix = resp.json().get("pix") or resp.json().get("order", {}).get("pix") or {}
-            qrt = pix.get("code") or pix.get("payload") or ""
+            data = resp.json()
+            # Busca o código em todas as estruturas possíveis
+            pix = data.get("pix") or data.get("order", {}).get("pix") or data.get("data", {}).get("pix") or {}
+            qrt = pix.get("code") or pix.get("payload") or pix.get("qrCodeText") or data.get("qrcode") or ""
+            
             if qrt:
                 col_cobrancas.insert_one({"transaction_id": ident, "valor": req.valor, "status": "aguardando", "criado_por": req.username, "criado_em": datetime.now()})
                 return {"success": True, "qr_text": qrt}
-            return {"success": False, "message": resp.json().get("message")}
-        except: return {"success": False}
+            
+            err_msg = data.get("message") or data.get("details") or str(data)
+            return {"success": False, "message": f"SigiloPay recusou: {err_msg}"}
+        except Exception as e:
+            return {"success": False, "message": f"Erro de conexão: {str(e)}"}
 
 @app.post("/webhook")
 async def webhook_sigilopay(request: Request):
@@ -99,30 +120,27 @@ async def webhook_sigilopay(request: Request):
 @bot.message_handler(commands=['start', 'painel'])
 def send_welcome(message):
     uid = str(message.from_user.id)
-    if uid != ADMIN_ID:
-        bot.send_message(message.chat.id, f"🚫 Acesso negado para ID: {uid}")
-        return
+    if uid != ADMIN_ID: return
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton(text="📱 ABRIR PAINEL", web_app=WebAppInfo(url=WEBAPP_URL)))
-    bot.send_message(message.chat.id, "✅ *SISTEMA REATIVADO!*\n\nAcesse o painel abaixo:", parse_mode="Markdown", reply_markup=markup)
+    bot.send_message(message.chat.id, "✅ *SISTEMA REATIVADO!*", parse_mode="Markdown", reply_markup=markup)
 
-# --- ROTA DO PAINEL (DEVE SER A ÚLTIMA) ---
+# --- CARREGAMENTO DO PAINEL (CATCH-ALL NO FINAL) ---
 @app.get("/{full_path:path}", response_class=HTMLResponse)
 async def catch_all(request: Request, full_path: str):
     try:
         with open("dashboard.html", "r", encoding="utf-8") as f: return f.read()
-    except: return "⚠️ Erro: Arquivo dashboard.html ausente."
+    except: return "⚠️ dashboard.html não encontrado."
 
 def run_bot():
     bot.remove_webhook()
     time.sleep(2)
-    print("🤖 Bot Iniciado!")
     bot.infinity_polling(timeout=60)
 
 @app.on_event("startup")
 def startup():
     threading.Thread(target=run_bot, daemon=True).start()
-    try: bot.send_message(ADMIN_ID, "🚀 *SISTEMA OPERACIONAL!* Tudo funcionando.")
+    try: bot.send_message(ADMIN_ID, "🚀 *SISTEMA ONLINE!* PIX e Bot prontos.")
     except: pass
 
 if __name__ == "__main__":
