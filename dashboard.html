@@ -17,19 +17,20 @@
         
         #main-content { display: none; }
         .nav-tabs { display: flex; gap: 10px; margin-bottom: 20px; background: rgba(0,0,0,0.2); padding: 5px; border-radius: 12px; }
-        .nav-item { flex: 1; text-align: center; padding: 10px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+        .nav-item { flex: 1; text-align: center; padding: 12px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; transition: 0.2s; }
         .nav-item.active { background: var(--accent); color: #052e16; }
 
         .section { display: none; }
         .section.active { display: block; }
 
         .card { background: var(--card); padding: 20px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 15px; }
-        input { width: 100%; background: #000; border: 1px solid #334155; padding: 14px; border-radius: 12px; color: white; margin-bottom: 10px; font-size: 15px; outline: none; }
+        input { width: 100%; background: #000; border: 1px solid #334155; padding: 14px; border-radius: 12px; color: white; margin-bottom: 12px; font-size: 15px; outline: none; }
         .btn { width: 100%; background: var(--accent); color: #052e16; border: none; padding: 15px; border-radius: 12px; font-weight: 700; cursor: pointer; }
         
-        /* LISTA DE USUARIOS */
+        .remember-box { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 15px; opacity: 0.8; }
+        .remember-box input { width: auto; margin: 0; cursor: pointer; }
+
         .user-item { display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); }
-        .user-item:last-child { border: none; }
         .del-btn { background: #ef4444; color: white; border: none; padding: 5px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; }
 
         #result-area { display: none; text-align: center; margin-top: 20px; }
@@ -42,7 +43,11 @@
             <h2 style="text-align: center; margin-bottom: 20px;">🔐 Acesso VIP</h2>
             <input type="text" id="user" placeholder="Usuário">
             <input type="password" id="pass" placeholder="Senha">
-            <button class="btn" onclick="login()">ENTRAR</button>
+            <div class="remember-box">
+                <input type="checkbox" id="remember">
+                <label for="remember">Lembrar acesso</label>
+            </div>
+            <button class="btn" id="login-btn" onclick="login()">ENTRAR</button>
         </div>
     </div>
 
@@ -52,9 +57,12 @@
             <div id="admin-tab" class="nav-item" style="display:none;" onclick="switchTab('users', this)">👥 USUÁRIOS</div>
         </div>
 
-        <!-- SEÇÃO PIX -->
         <div id="pix" class="section active">
             <div class="card">
+                <div style="display:flex; justify-content:space-between; margin-bottom:15px;">
+                    <span style="font-size:12px; opacity:0.6;">Sessão Ativa</span>
+                    <button onclick="logout()" style="background:none; border:none; color:#ef4444; font-size:11px; cursor:pointer;">Sair / Deslogar</button>
+                </div>
                 <input type="number" id="amount" placeholder="Valor (R$)">
                 <button class="btn" onclick="gerar()">GERAR PIX</button>
                 <div id="result-area">
@@ -65,7 +73,6 @@
             </div>
         </div>
 
-        <!-- SEÇÃO USUÁRIOS (SÓ PARA ADMIN) -->
         <div id="users" class="section">
             <div class="card">
                 <h4 style="margin-bottom:10px;">➕ Novo Usuário</h4>
@@ -82,11 +89,19 @@
 
     <script>
         const tg = window.Telegram.WebApp;
-        let currentUser = "";
+        tg.expand();
 
-        async function login() {
-            const u = document.getElementById('user').value;
-            const p = document.getElementById('pass').value;
+        // Atalho para o ENTER no login
+        document.addEventListener('keypress', (e) => {
+            if(e.key === 'Enter') {
+                if(document.getElementById('login-screen').style.display !== 'none') login();
+                else if(document.getElementById('pix').classList.contains('active')) gerar();
+            }
+        });
+
+        async function login(savedUser, savedPass) {
+            const u = savedUser || document.getElementById('user').value;
+            const p = savedPass || document.getElementById('pass').value;
             const r = await fetch('/api/login', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -94,14 +109,22 @@
             });
             const d = await r.json();
             if(d.success) {
-                currentUser = u;
+                if(document.getElementById('remember').checked) {
+                    localStorage.setItem('vip_u', u);
+                    localStorage.setItem('vip_p', p);
+                }
                 document.getElementById('login-screen').style.display = 'none';
                 document.getElementById('main-content').style.display = 'block';
                 if(d.role === 'admin') {
                     document.getElementById('admin-tab').style.display = 'block';
                     loadUsers();
                 }
-            } else { alert("Erro de login"); }
+            } else if(!savedUser) { alert("Login inválido"); }
+        }
+
+        function logout() {
+            localStorage.clear();
+            location.reload();
         }
 
         function switchTab(id, el) {
@@ -120,7 +143,7 @@
                     <span>👤 ${u.username}</span>
                     <button class="del-btn" onclick="delUser('${u.username}')">Excluir</button>
                 </div>
-            `).join('') || "Nenhum usuário extra.";
+            `).join('') || "Nenhum usuário.";
         }
 
         async function addUser() {
@@ -144,6 +167,7 @@
 
         async function gerar() {
             const val = document.getElementById('amount').value;
+            if(!val) return;
             const r = await fetch('/api/gerar_pix_web', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -161,7 +185,16 @@
 
         function copy() {
             navigator.clipboard.writeText(document.getElementById('pix-code').innerText);
+            tg.HapticFeedback.notificationOccurred('success');
             alert("Copiado!");
+        }
+
+        // AUTO-LOGIN
+        const su = localStorage.getItem('vip_u');
+        const sp = localStorage.getItem('vip_p');
+        if(su && sp) {
+            document.getElementById('remember').checked = true;
+            login(su, sp);
         }
     </script>
 </body>
